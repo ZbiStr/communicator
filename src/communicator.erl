@@ -36,27 +36,25 @@ init(_Args) ->
 	{ok, #state{}}.
 
 handle_call({login, Name, PID}, _From, #state{clients = Clients} = State) ->
-    CheckIfExists = [X || X <- State#state.clients, X#client.name == Name],
-
-
-    case CheckIfExists of
-        [] ->
+    
+    case get_client(Name, Clients) of
+        not_found ->
             UpdatedClients = Clients ++ [#client{name = Name, pid = PID}],
+            io:format("~p~n", [UpdatedClients]),
             {reply, ok, State#state{clients = UpdatedClients}};
 
-        [{client, Name, _}] ->
+        {client, Name, _} ->
             {reply, already_exists, State}
     end;
 
 
 handle_call({logout, Name}, _From, #state{clients = Clients} = State) ->
-    CheckIfExists = [X || X <- State#state.clients, X#client.name == Name],
 
-    case CheckIfExists of
-        [] ->
+    case get_client(Name, Clients) of
+        not_found ->
             {reply, do_not_exist, State};
 
-        [{client, Name, PID}] ->
+        {client, Name, PID} ->
             UpdatedClients = Clients -- [#client{name = Name, pid = PID}],
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
@@ -80,4 +78,17 @@ terminate(_Reason, _State) ->
 % ================================================================================
 % INTERNAL FUNCTIONS
 % ================================================================================
+
+
+get_client(Client, Clients) -> 
+    CheckIfExists = [X || X <- Clients, X#client.name == Client],
+    case CheckIfExists of
+        [] ->
+            not_found;
+        [{client, Client, PID}] ->
+            {client, Client, PID}
+    end.
+    
+    
+ 
 
