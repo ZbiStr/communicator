@@ -3,25 +3,64 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/1, start_link/1]).
+-export([stop/0, start_link/0, login/2, logout/1]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
--record(state, {dummy}).
+
+-define(SERVER, ?MODULE).
+-record(state, {clients = []}).
+-record(client, {name, pid}).
+
+
 
 % ================================================================================
 % API
 % ================================================================================
-stop(Name) ->
-	gen_server:call(Name, stop).
+stop() ->
+	gen_server:call(?SERVER, stop).
 
-start_link(Name) ->
-	gen_server:start_link({local, Name}, ?MODULE, [], []).
+start_link() ->
+	gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+login(Name, PID) ->
+    gen_server:call(?SERVER, {login, Name, PID}).
+
+logout(Name) ->
+    gen_server:call(?SERVER, {logout, Name}).
+
 
 % ================================================================================
 % CALLBACK
 % ================================================================================
 init(_Args) ->
-	{ok, #state{dummy=1}}.
+	{ok, #state{}}.
+
+handle_call({login, Name, PID}, _From, #state{clients = Clients} = State) ->
+    CheckIfExists = [X || X <- State#state.clients, X#client.name == Name],
+
+
+    case CheckIfExists of
+        [] ->
+            UpdatedClients = Clients ++ [#client{name = Name, pid = PID}],
+            {reply, ok, State#state{clients = UpdatedClients}};
+
+        [{client, Name, _}] ->
+            {reply, already_exists, State}
+    end;
+
+
+handle_call({logout, Name}, _From, #state{clients = Clients} = State) ->
+    CheckIfExists = [X || X <- State#state.clients, X#client.name == Name],
+
+    case CheckIfExists of
+        [] ->
+            {reply, do_not_exist, State};
+
+        [{client, Name, PID}] ->
+            UpdatedClients = Clients -- [#client{name = Name, pid = PID}],
+            {reply, ok, State#state{clients = UpdatedClients}}
+    end;
+
 
 handle_call(stop, _From, State) ->
 	{stop, normal, stopped, State};
