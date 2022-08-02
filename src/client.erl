@@ -15,6 +15,7 @@ stop() ->
 start_link() ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+<<<<<<< HEAD
 start() ->
 %     io:format("\nchoose one command below:\n"),
     %     io:format("
@@ -58,6 +59,11 @@ start2() ->
 		_ -> 
 			start()
 	end.
+=======
+logout(Name) ->
+	gen_statem:call(?MODULE, {logout, Name}).
+
+>>>>>>> 6912fd1de69f87a99dcadd604a76126df06c6372
 % ================================================================================
 % CALLBACK
 % ================================================================================
@@ -71,6 +77,18 @@ callback_mode() ->
 handle_event(enter, _OldState, _State, _Data) ->
 	keep_state_and_data;
 
+handle_event({logout, Name}, _OldState, _State, _Data) ->
+	case communicator:logout(Name) of
+		do_not_exist ->
+			io:format("This name does not exiist!~n", []),
+			keep_state_and_data;
+		ok ->
+			io:format("You have been successfully logged out!~n", [])
+			%zmiana stanu na wylogowany
+
+	%is_logged_in = false 
+	end;
+
 handle_event(_EventType, _EventContent, _State, _Data) ->
 	keep_state_and_data.
 
@@ -81,6 +99,7 @@ terminate(_Reason, _State, _Data) ->
 % INTERNAL FUNCTIONS
 % ================================================================================
 
+<<<<<<< HEAD
 help() -> 
     io:format("You can use the commands below:\nLOGIN     Allows you to log in to our app\nLOGOUT    Allows you to log out of our app\n").
 
@@ -92,3 +111,5 @@ login() ->
 
 logout() -> 
     io:format("Log out successfully\n").
+=======
+>>>>>>> 6912fd1de69f87a99dcadd604a76126df06c6372
