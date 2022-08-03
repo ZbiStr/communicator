@@ -17,52 +17,59 @@ stop(Username) ->
 start_link(Username) ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [Username], []).
 
+
 start() ->
-%     io:format("\nchoose one command below:\n"),
-    %     io:format("
-    % ////////////////////////////////////////////
-    % /////    Glad to see you in our app!   /////
-    % ////////////////////////////////////////////"),
-    %     io:format("
-    % //       Choose one command below:        //
-    % // help                                   //
-    % // login                                  //
-    % // exit                                   //
-    % ////////////////////////////////////////////\n"),
     io:format("\nchoose one command below:\n"),
+        io:format("
+////////////////////////////////////////////
+/////    Glad to see you in our app!   /////
+////////////////////////////////////////////"),
+        io:format("
+//       Choose one command below:        //
+// help                                   //
+// login                                  //
+// exit                                   //
+////////////////////////////////////////////\n"),
+    % io:format("\nchoose one command below:\n"),
     Input = io:get_line(""),
     Choice = lists:droplast(Input),
 	case Choice of
 		"help" ->
-			help(),
+			help1(),
 			start();
 		"login" ->
-			login(),
-			start2();
+			Username = login(),
+			start2(Username);
 		"exit" ->
-			% print some exit message
+			%stop(Username);
 			ok;
 		_ ->
 			start()
 	end.
 	
-start2() ->
+start2(Username) ->
     Input = io:get_line(""),
     Choice = lists:droplast(Input),
 	case Choice of
 		"help" ->
-			help(),
-			start2();
+			help2(),
+			start2(Username);
 		"logout" ->
-			logout(Choice),
-			start2();
+			Logout = logout(Username),
+			case Logout of
+				do_not_exist ->
+					start2(Username);
+				ok ->
+					start()
+				end;
 		"exit" ->
-			% stop()
-			% print some exit message
+			logout(Username),
+			stop(Username),
 			ok;
 		_ -> 
-			start2()
+			start2(Username)
 	end.
+
 
 login() -> 
     Prompt = "Put your username: ",
@@ -91,6 +98,11 @@ logout(Username) ->
 			Result
 	end.
 
+help1() -> 
+    io:format("You can use the commands below:\nLOGIN     Allows you to log in to our app\nEXIT      Allows you to exit the app\n").
+
+help2() -> 
+    io:format("You can use the commands below:\nLOGOUT    Allows you to log out of our app\nEXIT      Allows you to exit the app\n").
 % ================================================================================
 % CALLBACK
 % ================================================================================
