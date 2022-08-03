@@ -14,24 +14,25 @@
 stop(Username) ->
 	gen_statem:stop({?MODULE, client_node(list_to_atom(Username))}).
 
+
 start_link(Username) ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [Username], []).
 
 
 start() ->
-    io:format("\nchoose one command below:\n"),
-        io:format("
+	io:format("\nchoose one command below:\n"),
+	io:format("
 ////////////////////////////////////////////
 /////    Glad to see you in our app!   /////
 ////////////////////////////////////////////"),
-        io:format("
+	io:format("
 //       Choose one command below:        //
 // help                                   //
 // login                                  //
 // exit                                   //
 ////////////////////////////////////////////\n"),
-    Input = io:get_line(""),
-    Choice = lists:droplast(Input),
+	Input = io:get_line(""),
+	Choice = lists:droplast(Input),
 	case Choice of
 		"help" ->
 			help1(),
@@ -45,9 +46,10 @@ start() ->
 			start()
 	end.
 	
+
 start2(Username) ->
-    Input = io:get_line(""),
-    Choice = lists:droplast(Input),
+	Input = io:get_line(""),
+	Choice = lists:droplast(Input),
 	case Choice of
 		"help" ->
 			help2(),
@@ -70,8 +72,8 @@ start2(Username) ->
 
 
 login() -> 
-    Prompt = "Put your username: ",
-    {ok,[Username]} = io:fread(Prompt, "~s"),
+	Prompt = "Put your username: ",
+	{ok,[Username]} = io:fread(Prompt, "~s"),
 	start_link(Username),
 	Result = communicator:login(Username, {?MODULE, client_node(Username)}),
 	case Result of
@@ -83,6 +85,7 @@ login() ->
 			io:format("Username: ~s~n", [Username]),
 			Username
 	end.
+
 
 logout(Username) ->
 	Result = communicator:logout(Username),
@@ -96,11 +99,14 @@ logout(Username) ->
 			Result
 	end.
 
+
 help1() -> 
-    io:format("You can use the commands below:\nLOGIN     Allows you to log in to our app\nEXIT      Allows you to exit the app\n").
+	io:format("You can use the commands below:\nLOGIN     Allows you to log in to our app\nEXIT      Allows you to exit the app\n").
+
 
 help2() -> 
-    io:format("You can use the commands below:\nLOGOUT    Allows you to log out of our app\nEXIT      Allows you to exit the app\n").
+	io:format("You can use the commands below:\nLOGOUT    Allows you to log out of our app\nEXIT      Allows you to exit the app\n").
+
 % ================================================================================
 % CALLBACK
 % ================================================================================
