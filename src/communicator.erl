@@ -9,7 +9,7 @@
 
 -define(SERVER, ?MODULE).
 -record(state, {clients = #{}}).
--record(client, {pid}).
+-record(client, {address}).
 
 
 
@@ -22,8 +22,8 @@ stop() ->
 start_link() ->
 	gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-login(Name, PID) ->
-    gen_server:call(?SERVER, {login, Name, PID}).
+login(Name, Address) ->
+    gen_server:call(?SERVER, {login, Name, Address}).
 
 logout(Name) ->
     gen_server:call(?SERVER, {logout, Name}).
@@ -35,13 +35,12 @@ logout(Name) ->
 init(_Args) ->
 	{ok, #state{}}.
 
-handle_call({login, Name, PID}, _From, State = #state{}) ->     %przeszukiwanie mapy, jeśli nie ma w niej użytkownika Name, 
+handle_call({login, Name, Address}, _From, State = #state{}) ->     %przeszukiwanie mapy, jeśli nie ma w niej użytkownika Name, 
     case maps:get(Name, State#state.clients, not_found) of      %to go dodaje, jeśli jest, zwraca already_exists
         not_found ->
-            Fun = fun(V) -> V + 1 end,
-            UpdatedClients = maps:update_with(Name, Fun, #client{pid = PID}, State#state.clients),
+            UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}};
-        {client, PID} ->
+        {client, Address} ->
             {reply, already_exists, State#state{}}
     end;
 
@@ -50,7 +49,7 @@ handle_call({logout, Name}, _From, State = #state{}) ->         %przeszukiwanie 
         not_found ->
             {reply, do_not_exist, State#state{}};
 
-        {client, _PID} ->
+        {client, _Address} ->
             UpdatedClients = maps:without([Name], State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
