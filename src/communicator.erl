@@ -8,8 +8,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -define(SERVER, ?MODULE).
--record(state, {clients = []}).
--record(client, {name, pid}).
+-record(state, {clients = #{}}).
+-record(client, {pid}).
 
 
 
@@ -35,27 +35,23 @@ logout(Name) ->
 init(_Args) ->
 	{ok, #state{}}.
 
-handle_call({login, Name, PID}, _From, #state{clients = Clients} = State) ->
-    
-    case get_client(Name, Clients) of
+handle_call({login, Name, PID}, _From, State = #state{}) ->     %przeszukiwanie mapy, jeśli nie ma w niej użytkownika Name, 
+    case maps:get(Name, State#state.clients, not_found) of      %to go dodaje, jeśli jest, zwraca already_exists
         not_found ->
-            UpdatedClients = Clients ++ [#client{name = Name, pid = PID}],
-            io:format("~p~n", [UpdatedClients]),
+            Fun = fun(V) -> V + 1 end,
+            UpdatedClients = maps:update_with(Name, Fun, #client{pid = PID}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}};
-
-        {client, Name, _} ->
-            {reply, already_exists, State}
+        {client, PID} ->
+            {reply, already_exists, State#state{}}
     end;
 
-
-handle_call({logout, Name}, _From, #state{clients = Clients} = State) ->
-
-    case get_client(Name, Clients) of
+handle_call({logout, Name}, _From, State = #state{}) ->         %przeszukiwanie mapy, jeśli nie ma w niej użytkownika Name, 
+    case maps:get(Name, State#state.clients, not_found) of      %to zwraca do_not_exists, jeśli jest, to go usuwa
         not_found ->
-            {reply, do_not_exist, State};
+            {reply, do_not_exist, State#state{}};
 
-        {client, Name, PID} ->
-            UpdatedClients = Clients -- [#client{name = Name, pid = PID}],
+        {client, _PID} ->
+            UpdatedClients = maps:without([Name], State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
 
@@ -79,16 +75,6 @@ terminate(_Reason, _State) ->
 % INTERNAL FUNCTIONS
 % ================================================================================
 
-
-get_client(Client, Clients) -> 
-    CheckIfExists = [X || X <- Clients, X#client.name == Client],
-    case CheckIfExists of
-        [] ->
-            not_found;
-        [{client, Client, PID}] ->
-            {client, Client, PID}
-    end.
-    
     
  
 

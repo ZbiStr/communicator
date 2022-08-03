@@ -13,7 +13,6 @@ login_test() ->
 logout_test() ->
   {ok, _Pid} = communicator:start_link(),
   ok = communicator:login(?NAME1, pid),
-
   ok = communicator:logout(?NAME1),
   do_not_exist = communicator:logout(?NAME1),
   stopped = communicator:stop().
