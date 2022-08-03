@@ -103,9 +103,9 @@ help2() ->
 % CALLBACK
 % ================================================================================
 init([Username]) ->
-	net_kernel:start([list_to_atom(Username),shortnames]),
+	net_kernel:start(list_to_atom(Username), #{name_domain => shortnames}),
 	erlang:set_cookie(local, ?COOKIE),
-	{ok, state, []}.
+	{ok, state, [Username]}.
 
 %% state_functions | handle_event_function | [_, state_enter].
 callback_mode() ->
@@ -116,7 +116,8 @@ handle_event(enter, _OldState, _State, _Data) ->
 handle_event(_EventType, _EventContent, _State, _Data) ->
 	keep_state_and_data.
 
-terminate(_Reason, _State, _Data) ->
+terminate(_Reason, _State, [Username] = _Data) ->
+	communicator:logout(Username),
 	net_kernel:stop(),
 	ok.
 

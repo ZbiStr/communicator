@@ -1,5 +1,4 @@
 -module(communicator).
-
 -behaviour(gen_server).
 
 %% API
@@ -18,14 +17,12 @@
 % API
 % ================================================================================
 start_link() ->
-    net_kernel:start([?NODE_NAME,shortnames]),
-    erlang:set_cookie(local, ?COOKIE),
     Result = gen_server:start_link({local, ?SERVER}, ?MODULE, [], []), 
     io:format("Communicator server has been started. Created on ~p~n", [server_node()]),
 	Result.
 
 stop() ->
-    gen_server:call({?SERVER, server_node(), stop}),
+    gen_server:stop({?SERVER, server_node()}),
     io:format("Communicator server has been closed~n").
 
 login(Name, Address) ->
@@ -39,10 +36,11 @@ logout(Name) ->
 % CALLBACK
 % ================================================================================
 init(_Args) ->
-	{ok, #state{}}.
+    net_kernel:start(?NODE_NAME, #{name_domain => shortnames}),
+    erlang:set_cookie(local, ?COOKIE),
+    {ok, #state{}}.
 
-
-handle_call({login, Name, Address}, _From, State = #state{}) ->     %przeszukiwanie mapy, jeśli nie ma w niej użytkownika Name, 
+handle_call({login, Name, Address}, _From, State) ->     %przeszukiwanie mapy, jeśli nie ma w niej użytkownika Name, 
     case maps:get(Name, State#state.clients, not_found) of      %to go dodaje, jeśli jest, zwraca already_exists
         not_found ->
             UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
@@ -50,8 +48,7 @@ handle_call({login, Name, Address}, _From, State = #state{}) ->     %przeszukiwa
         {client, Address} ->
             {reply, already_exists, State#state{}}
     end;
-
-handle_call({logout, Name}, _From, State = #state{}) ->         %przeszukiwanie mapy, jeśli nie ma w niej użytkownika Name, 
+handle_call({logout, Name}, _From, State) ->         %przeszukiwanie mapy, jeśli nie ma w niej użytkownika Name, 
     case maps:get(Name, State#state.clients, not_found) of      %to zwraca do_not_exists, jeśli jest, to go usuwa
         not_found ->
             {reply, do_not_exist, State#state{}};
@@ -60,26 +57,22 @@ handle_call({logout, Name}, _From, State = #state{}) ->         %przeszukiwanie 
             UpdatedClients = maps:without([Name], State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
-
 handle_call(stop, _From, State) ->
     net_kernel:stop(),
-	{stop, normal, stopped, State};
-
+    {stop, normal, stopped, State};
 handle_call(_Request, _From, State) ->
-	{reply, ok, State}.
-
+    {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
-	{noreply, State}.
-
+    {noreply, State}.
 
 handle_info(_Info, State) ->
-	{noreply, State}.
+    {noreply, State}.
 
 
 terminate(_Reason, _State) ->
     net_kernel:stop(),
-	ok.
+    ok.
 
 % ================================================================================
 % INTERNAL FUNCTIONS
@@ -87,5 +80,5 @@ terminate(_Reason, _State) ->
 server_node() ->
     {ok, Host} = inet:gethostname(),
     list_to_atom(atom_to_list(?NODE_NAME) ++ "@" ++ Host).
- 
+
 
