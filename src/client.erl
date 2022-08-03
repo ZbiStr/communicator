@@ -14,10 +14,8 @@
 stop(Username) ->
 	gen_statem:stop({?MODULE, client_node(list_to_atom(Username))}).
 
-
 start_link(Username) ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [Username], []).
-
 
 start() ->
 	io:format("\nchoose one command below:\n"),
@@ -46,7 +44,6 @@ start() ->
 			start()
 	end.
 	
-
 start2(Username) ->
 	Input = io:get_line(""),
 	Choice = lists:droplast(Input),
@@ -70,7 +67,6 @@ start2(Username) ->
 			start2(Username)
 	end.
 
-
 login() -> 
 	Prompt = "Put your username: ",
 	{ok,[Username]} = io:fread(Prompt, "~s"),
@@ -86,7 +82,6 @@ login() ->
 			Username
 	end.
 
-
 logout(Username) ->
 	Result = communicator:logout(Username),
 	case Result of
@@ -99,10 +94,8 @@ logout(Username) ->
 			Result
 	end.
 
-
 help1() -> 
 	io:format("You can use the commands below:\nLOGIN     Allows you to log in to our app\nEXIT      Allows you to exit the app\n").
-
 
 help2() -> 
 	io:format("You can use the commands below:\nLOGOUT    Allows you to log out of our app\nEXIT      Allows you to exit the app\n").
@@ -121,7 +114,6 @@ callback_mode() ->
 
 handle_event(enter, _OldState, _State, _Data) ->
 	keep_state_and_data;
-
 handle_event(_EventType, _EventContent, _State, _Data) ->
 	keep_state_and_data.
 
@@ -132,7 +124,6 @@ terminate(_Reason, _State, _Data) ->
 % ================================================================================
 % INTERNAL FUNCTIONS
 % ================================================================================
-
 client_node(Username) ->
 	{ok, Host} = inet:gethostname(),
 	list_to_atom(atom_to_list(Username) ++ "@" ++ Host).
