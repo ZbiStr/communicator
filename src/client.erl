@@ -30,7 +30,6 @@ start() ->
 // login                                  //
 // exit                                   //
 ////////////////////////////////////////////\n"),
-    % io:format("\nchoose one command below:\n"),
     Input = io:get_line(""),
     Choice = lists:droplast(Input),
 	case Choice of
@@ -41,7 +40,6 @@ start() ->
 			Username = login(),
 			start2(Username);
 		"exit" ->
-			%stop(Username);
 			ok;
 		_ ->
 			start()
