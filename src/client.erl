@@ -15,7 +15,6 @@ stop() ->
 start_link() ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-<<<<<<< HEAD
 start() ->
 %     io:format("\nchoose one command below:\n"),
     %     io:format("
@@ -52,18 +51,26 @@ start2() ->
 			help(),
 			start2();
 		"logout" ->
-			logout(),
+			logout(Choice),
 			start2();
 		"exit" ->
 			stop();
 		_ -> 
 			start()
 	end.
-=======
+
+login() -> 
+    % io:format("ok\n").
+    Prompt = "Put your username: ",
+    {ok,[Name]} = io:fread(Prompt, "~s"),
+    io:format("Username: ~s~n", [Name]).
+
 logout(Name) ->
 	gen_statem:call(?MODULE, {logout, Name}).
 
->>>>>>> 6912fd1de69f87a99dcadd604a76126df06c6372
+% logout() -> 
+%     io:format("Log out successfully\n").
+
 % ================================================================================
 % CALLBACK
 % ================================================================================
@@ -99,17 +106,6 @@ terminate(_Reason, _State, _Data) ->
 % INTERNAL FUNCTIONS
 % ================================================================================
 
-<<<<<<< HEAD
+
 help() -> 
     io:format("You can use the commands below:\nLOGIN     Allows you to log in to our app\nLOGOUT    Allows you to log out of our app\n").
-
-login() -> 
-    % io:format("ok\n").
-    Prompt = "Put your username: ",
-    {ok,[Name]} = io:fread(Prompt, "~s"),
-    io:format("Username: ~s~n", [Name]).
-
-logout() -> 
-    io:format("Log out successfully\n").
-=======
->>>>>>> 6912fd1de69f87a99dcadd604a76126df06c6372
