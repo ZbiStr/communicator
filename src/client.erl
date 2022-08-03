@@ -12,7 +12,7 @@
 % API
 % ================================================================================
 stop(Username) ->
-	gen_statem:stop({?MODULE, client_node(list_to_atom(Username))}).
+	gen_statem:stop({?MODULE, client_node(Username)}).
 
 start_link(Username) ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [Username], []).
@@ -61,7 +61,6 @@ start2(Username) ->
 				end;
 		"exit" ->
 			logout(Username),
-			stop(Username),
 			ok;
 		_ -> 
 			start2(Username)
@@ -126,4 +125,4 @@ terminate(_Reason, _State, _Data) ->
 % ================================================================================
 client_node(Username) ->
 	{ok, Host} = inet:gethostname(),
-	list_to_atom(atom_to_list(Username) ++ "@" ++ Host).
+	list_to_atom(Username ++ "@" ++ Host).
