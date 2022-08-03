@@ -126,9 +126,6 @@ terminate(_Reason, _State, _Data) ->
 % ================================================================================
 % INTERNAL FUNCTIONS
 % ================================================================================
-help() -> 
-    io:format("You can use the commands below:\nLOGIN     Allows you to log in to our app\nLOGOUT    Allows you to log out of our app\n").
-
 
 client_node(Username) ->
 	{ok, Host} = inet:gethostname(),
