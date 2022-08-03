@@ -62,6 +62,7 @@ handle_call({logout, Name}, _From, State = #state{}) ->         %przeszukiwanie 
     end;
 
 handle_call(stop, _From, State) ->
+    net_kernel:stop(),
 	{stop, normal, stopped, State};
 
 handle_call(_Request, _From, State) ->
@@ -77,6 +78,7 @@ handle_info(_Info, State) ->
 
 
 terminate(_Reason, _State) ->
+    net_kernel:stop(),
 	ok.
 
 % ================================================================================
