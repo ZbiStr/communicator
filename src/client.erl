@@ -80,10 +80,16 @@ login() ->
 	end.
 
 logout(Username) ->
-	gen_statem:call(?MODULE, {logout, Username}).
-
-% logout() -> 
-%     io:format("Log out successfully\n").
+	Result = communicator:logout(Username),
+	case Result of
+		do_not_exist ->
+			io:format("This name does not exiist!~n", []),
+			Result;
+		ok ->
+			stop(Username),
+			io:format("You have been successfully logged out!~n", []),
+			Result
+	end.
 
 % ================================================================================
 % CALLBACK
@@ -99,18 +105,6 @@ callback_mode() ->
 
 handle_event(enter, _OldState, _State, _Data) ->
 	keep_state_and_data;
-
-handle_event({logout, Username}, _OldState, _State, _Data) ->
-	case communicator:logout(Username) of
-		do_not_exist ->
-			io:format("This name does not exiist!~n", []),
-			keep_state_and_data;
-		ok ->
-			io:format("You have been successfully logged out!~n", [])
-			%zmiana stanu na wylogowany
-
-	%is_logged_in = false 
-	end;
 
 handle_event(_EventType, _EventContent, _State, _Data) ->
 	keep_state_and_data.
