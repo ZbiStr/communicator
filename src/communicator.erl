@@ -36,7 +36,7 @@ logout(Name) ->
 % CALLBACK
 % ================================================================================
 init(_Args) ->
-    net_kernel:start(?NODE_NAME, #{name_domain => shortnames}),
+    net_kernel:start([?NODE_NAME, shortnames]),
     erlang:set_cookie(local, ?COOKIE),
     {ok, #state{}}.
 

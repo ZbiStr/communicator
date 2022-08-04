@@ -103,7 +103,7 @@ help2() ->
 % CALLBACK
 % ================================================================================
 init([Username]) ->
-	net_kernel:start(list_to_atom(Username), #{name_domain => shortnames}),
+	net_kernel:start([list_to_atom(Username), shortnames]),
 	erlang:set_cookie(local, ?COOKIE),
 	{ok, state, [Username]}.
 
