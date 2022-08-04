@@ -22,8 +22,9 @@ start_link() ->
 	Result.
 
 stop() ->
-    gen_server:stop({?SERVER, server_node()}),
-    io:format("Communicator server has been closed~n").
+    Result = gen_server:stop({?SERVER, server_node()}),
+    io:format("Communicator server has been closed~n"),
+    Result.
 
 login(Name, Address) ->
     gen_server:call({?SERVER, server_node()}, {login, Name, Address}).
