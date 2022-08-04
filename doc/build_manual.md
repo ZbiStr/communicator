@@ -25,6 +25,7 @@ Aby uruchomić klienta należy wykonać następujące polecenie w wierszu polece
 
     client:start().
 
+>**Uwaga:** Aby aplikacja działała poprawnie serwer i klient muszą być uruchomione w osobnych terminalach.
 
 ## Instrukcja uruchamiania testów
   
