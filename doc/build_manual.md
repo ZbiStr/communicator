@@ -5,40 +5,30 @@ Niniejszy dokument zawiera instrukcję budowania i uruchamiania systemu:
 
 ## Instrukcja budowania
 
+Do budowania system wykorzystuje rebar3 i bibliotekę OTP 24.3.4.
 
-Do budowania system wykorzystuje...
+Aby zbudować system należy wykonać następujące polecenie w wierszu poleceń:
 
-Aby zbudować system należy wykonać nnastępujące polecenie w wierszu poleceń:
-
-rebar3 do clean, compile
+    rebar3 do compile
 
 ## Instrukcja uruchamiania
 
+Aby uruchomić aplikację należy wykonać następujące polecenie w wierszu poleceń:
 
-Aby uruchomić aplikację wykonać następujące polecenie w wierszu poleceń:
-rebar3 shell
+    rebar3 shell
 
-Aby uruchomić serwer należy wykonać następujące polecenie w wierszu poleceń:
+Następnie, by uruchomić serwer, należy wykonać następujące polecenie w wierszu poleceń:
 
-erl -bl elks -a server
-
+    communicator:start_link().
 
 Aby uruchomić klienta należy wykonać następujące polecenie w wierszu poleceń:
 
-erl -bl elda -a client
+    client:start().
 
 
 ## Instrukcja uruchamiania testów
   
 
-Aby uruchomić testy należy postępować następująco:
+Aby uruchomić testy należy wykonać następujące polecenie: 
 
-1. Uruchomić serwer
-
-2. Uruchomić środowisko erlanga poleceń: 
-
-erl 
-
-3. Wykonać polecenie: 
-
-rebar3 do clean, compile, eunit --dir=test, cover --verbose
+    rebar3 do clean, compile, eunit --dir=test, cover --verbose
