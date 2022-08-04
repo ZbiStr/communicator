@@ -17,7 +17,7 @@ Poniżej znajduje się opis wysyłanych komunikatów.
 sequenceDiagram
 Klient ->> Serwer: login(Username, Address)
 alt success
-Serwer ->> Klient: {ok}
+Serwer ->> Klient: ok
 else error
 Serwer ->> Klient: {error, already_exists}
 end
@@ -30,7 +30,7 @@ Klient wysyła do serwera wiadomość w postaci login(Username, Address). Jeżel
 sequenceDiagram
 Klient ->> Serwer: logout(Username)
 alt success
-Serwer ->> Klient: {ok}
+Serwer ->> Klient: ok
 else error
 Serwer ->> Klient: {error, does_not_exist}
 end
