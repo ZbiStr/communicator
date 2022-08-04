@@ -2,7 +2,7 @@
 -behaviour(gen_statem).
 
 %% API
--export([start/0]).
+-export([stop/1, start_link/1, start/0]).
 %% CALLBACKS
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
 
@@ -13,6 +13,11 @@
 % API
 % ================================================================================
 
+stop(Username) ->
+	gen_statem:stop({?MODULE, client_node(Username)}).
+
+start_link(Username) ->
+	gen_statem:start_link({local, ?MODULE}, ?MODULE, [Username], []).
 
 start() ->
 	greet(),
@@ -90,7 +95,7 @@ parse_logged_in(Username) ->
 
 login() -> 
 	{ok, [Username]} = io:fread("Please input your username: ", "~s"),
-	gen_statem:start_link({local, ?MODULE}, ?MODULE, [Username], []),
+	start_link(Username),
 	case communicator:login(Username, {?MODULE, client_node(Username)}) of
 		already_exists ->
 			stop(Username),
@@ -133,6 +138,3 @@ exit      to exit the app~n").
 client_node(Username) ->
 	{ok, Host} = inet:gethostname(),
 	list_to_atom(Username ++ "@" ++ Host).
-
-stop(Username) ->
-	gen_statem:stop({?MODULE, client_node(Username)}).
