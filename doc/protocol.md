@@ -5,28 +5,28 @@ Niniejszy dokument zawiera opis protokołu komunikacyjnego pomiędzy serwerem a 
 
 ## Sposób komunkacji
 
-Cała komunikacja odbywa się w środowisku erlang....
+Cała komunikacja odbywa się w środowisku erlang OTP 24.3.4.
 
 ## Przesyłane komunikaty
 
-Poniżej znajduje się opis wysyłanych komunikatów ..
+Poniżej znajduje się opis wysyłanych komunikatów.
 
-### Wysyłanie wiadomości do wszystkich klientów
+### Login
 
 ```mermaid
 sequenceDiagram
-Klient -->> Serwer: {toall, "Tekst"}
+Klient ->> Serwer: login(Username, Address)
 Serwer -->> Klient: {ok}
+Serwer -->> Klient: {already_exists}
 ```
-  
-Klient wysyła do serwera wiadomość w postaci .... Jeżeli zapytanie zostało poprawnie przetworzne serwer odpowiada... Jeżeli nastąpił błąd to serwer odpowiada...
+Klient wysyła do serwera wiadomość w postaci login(Username, Address). Jeżeli zapytanie zostało poprawnie przetworzne, serwer odpowiada "ok". Jeżeli nastąpił błąd to serwer odpowiada "already_exists".
 
-### Kolejny komunikat tu opis jak wyżej
+### Logout
 
-  ```mermaid
-graph LR
-A[Square Rect] -- Link text --> B((Circle))
-A --> C(Round Rect)
-B --> D{Rhombus}
-C --> D
+```mermaid
+sequenceDiagram
+Klient ->> Serwer: logout(Username)
+Serwer -->> Klient: {ok}
+Serwer -->> Klient: {does_not_exist}
 ```
+Klient wysyła do serwera wiadomość w postaci logout(Username). Jeżeli zapytanie zostało poprawnie przetworzne, serwer odpowiada "ok". Jeżeli nastąpił błąd to serwer odpowiada "does_not_exist".
