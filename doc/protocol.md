@@ -16,17 +16,23 @@ Poniżej znajduje się opis wysyłanych komunikatów.
 ```mermaid
 sequenceDiagram
 Klient ->> Serwer: login(Username, Address)
-Serwer -->> Klient: {ok}
-Serwer -->> Klient: {already_exists}
+alt success
+Serwer ->> Klient: {ok}
+else error
+Serwer ->> Klient: {error, already_exists}
+end
 ```
-Klient wysyła do serwera wiadomość w postaci login(Username, Address). Jeżeli zapytanie zostało poprawnie przetworzne, serwer odpowiada "ok". Jeżeli nastąpił błąd to serwer odpowiada "already_exists".
+Klient wysyła do serwera wiadomość w postaci login(Username, Address). Jeżeli zapytanie zostało poprawnie przetworzne, serwer odpowiada "ok". Jeżeli nastąpił błąd to serwer odpowiada "{error, already_exists}".
 
 ### Logout
 
 ```mermaid
 sequenceDiagram
 Klient ->> Serwer: logout(Username)
-Serwer -->> Klient: {ok}
-Serwer -->> Klient: {does_not_exist}
+alt success
+Serwer ->> Klient: {ok}
+else error
+Serwer ->> Klient: {error, does_not_exist}
+end
 ```
-Klient wysyła do serwera wiadomość w postaci logout(Username). Jeżeli zapytanie zostało poprawnie przetworzne, serwer odpowiada "ok". Jeżeli nastąpił błąd to serwer odpowiada "does_not_exist".
+Klient wysyła do serwera wiadomość w postaci logout(Username). Jeżeli zapytanie zostało poprawnie przetworzne, serwer odpowiada "ok". Jeżeli nastąpił błąd to serwer odpowiada "{error, does_not_exist}".
