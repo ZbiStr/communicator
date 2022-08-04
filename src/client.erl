@@ -78,6 +78,7 @@ parse_logged_in(Username) ->
 				does_not_exist ->
 					parse_logged_in(Username);
 				ok ->
+					help_logged_out(),
 					parse_logged_out()
 			end;
 		exit ->
