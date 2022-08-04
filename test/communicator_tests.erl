@@ -12,6 +12,6 @@ login_test() ->
 
 logout_test() ->
   ok = communicator:logout(?NAME1),
-  do_not_exist = communicator:logout(?NAME1).
+  does_not_exist = communicator:logout(?NAME1).
 stop_test() ->
   ?assertMatch(ok, communicator:stop()).

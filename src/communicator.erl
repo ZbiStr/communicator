@@ -22,9 +22,8 @@ start_link() ->
 	Result.
 
 stop() ->
-    Result = gen_server:stop({?SERVER, server_node()}),
-    io:format("Communicator server has been closed~n"),
-    Result.
+    gen_server:stop({?SERVER, server_node()}),
+    io:format("Communicator server has been closed~n").
 
 login(Name, Address) ->
     gen_server:call({?SERVER, server_node()}, {login, Name, Address}).
@@ -37,7 +36,7 @@ logout(Name) ->
 % CALLBACK
 % ================================================================================
 init(_Args) ->
-    net_kernel:start([?NODE_NAME, shortnames]),
+    net_kernel:start(?NODE_NAME, #{name_domain => shortnames}),
     erlang:set_cookie(local, ?COOKIE),
     {ok, #state{}}.
 
@@ -50,9 +49,9 @@ handle_call({login, Name, Address}, _From, State) ->     %przeszukiwanie mapy, j
             {reply, already_exists, State#state{}}
     end;
 handle_call({logout, Name}, _From, State) ->         %przeszukiwanie mapy, jeśli nie ma w niej użytkownika Name, 
-    case maps:get(Name, State#state.clients, not_found) of      %to zwraca do_not_exists, jeśli jest, to go usuwa
+    case maps:get(Name, State#state.clients, not_found) of      %to zwraca does_not_exists, jeśli jest, to go usuwa
         not_found ->
-            {reply, do_not_exist, State#state{}};
+            {reply, does_not_exist, State#state{}};
 
         {client, _Address} ->
             UpdatedClients = maps:without([Name], State#state.clients),
