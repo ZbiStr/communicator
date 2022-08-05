@@ -19,7 +19,9 @@ exit      to exit the app
 
 Po wybraniu opcji `login` pojawi się komunikat:
 
-`Please input your username: `
+```
+Please input your username: 
+```
 
 Po którym należy podać nazwę użytkownika.
 
@@ -34,7 +36,7 @@ help      to view this again
 exit      to exit the app
 ```
 
-Jeżeli wystąpi błąd, pojawi się komunikat:
+Jeżeli nazwa będzie zajęta, pojawi się komunikat:
 
 ```
 Username already logged on
