@@ -26,22 +26,10 @@ stop() ->
     io:format("Communicator server has been closed~n").
 
 login(Name, Address) ->
-    Where = whereis(?SERVER),
-    case Where of
-        undefined ->
-            {error, server_down};
-        _ ->
-            gen_server:call({?SERVER, server_node()}, {login, Name, Address})
-    end.
+    gen_server:call({?SERVER, server_node()}, {login, Name, Address}).
 
 logout(Name) ->
-    Where = whereis(?SERVER),
-    case Where of
-        undefined ->
-            {error, server_down};
-        _ ->
-            gen_server:call({?SERVER, server_node()}, {logout, Name})
-    end.
+    gen_server:call({?SERVER, server_node()}, {logout, Name}).
 
 
 % ================================================================================
