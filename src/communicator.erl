@@ -7,7 +7,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -define(SERVER, ?MODULE).
--define(NODE_NAME, erlangpol_server).
+-define(NODE_NAME, erlangpol).
 -define(COOKIE, ciasteczko).
 
 -record(state, {clients = #{}}).

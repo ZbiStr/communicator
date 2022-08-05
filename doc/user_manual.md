@@ -27,6 +27,7 @@ W przypadku poprawnego połączenia pojawi się komunikat:
 
 ```
 Hello <Username>!
+You have been successfully logged in!
 You can use the following commands:
 logout    to log out from the server
 help      to view this again
@@ -44,6 +45,9 @@ Po wybraniu opcji `logout` klient rozłączy się z serwerem i powróci do ekran
 ```
 You have been successfully logged out!
 
+////////////////////////////////////////////
+/////    Glad to see you in our app!   /////
+////////////////////////////////////////////
 You can use the following commands:
 login     to log in to the server
 help      to view this again

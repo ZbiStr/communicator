@@ -20,10 +20,11 @@ start_link(Username) ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [Username], []).
 
 start() ->
+	net_kernel:start(temp, #{name_domain => shortnames}),
+	erlang:set_cookie(local, ?COOKIE),
 	greet(),
 	help_logged_out(),
 	parse_logged_out().
-
 
 % ================================================================================
 % CALLBACKS
@@ -62,13 +63,13 @@ parse_logged_out() ->
 			parse_logged_out();
 		login ->
 			Username = login(),
-			io:format("You have been successfully logged in~n"),
+			io:format("You have been successfully logged in!~n"),
 			help_logged_in(),
 			parse_logged_in(Username);
 		exit ->
-			ok;
+			io:format("See you later!~n");
 		_ ->
-			io:format("Not a viable command.~n"),
+			io:format("Not available command.~n"),
 			parse_logged_out()
 	end.
 
@@ -83,26 +84,26 @@ parse_logged_in(Username) ->
 				does_not_exist ->
 					parse_logged_in(Username);
 				ok ->
-					help_logged_out(),
-					parse_logged_out()
+					start()
 			end;
 		exit ->
-			logout(Username);
+			logout(Username),
+			io:format("See you later!~n");
 		_ ->
-			io:format("Not a viable command.~n"),
+			io:format("Not available command.~n"),
 			parse_logged_in(Username)
 	end.
 
 login() -> 
 	{ok, [Username]} = io:fread("Please input your username: ", "~s"),
-	start_link(Username),
 	case communicator:login(Username, {?MODULE, client_node(Username)}) of
 		already_exists ->
-			stop(Username),
 			io:fwrite("Username already logged on~n"),
 			login();
 		ok ->
-			io:format("Username: ~s~n", [Username]),
+			net_kernel:stop(),
+			start_link(Username),
+			io:format("~nHello ~s!~n", [Username]),
 			Username
 	end.
 
