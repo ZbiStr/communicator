@@ -8,28 +8,31 @@ Niniejszy dokument zawiera instrukcję budowania i uruchamiania systemu:
 Do budowania system wykorzystuje rebar3 i bibliotekę OTP 24.3.4.
 
 Aby zbudować system należy wykonać następujące polecenie w wierszu poleceń:
-
-    rebar3 do compile
-
+```erlang
+rebar3 do compile
+```
 ## Instrukcja uruchamiania
 
 Aby uruchomić aplikację należy wykonać następujące polecenie w wierszu poleceń:
-
-    rebar3 shell
-
+```erlang
+rebar3 shell
+```
 Następnie, by uruchomić serwer, należy wykonać następujące polecenie w wierszu poleceń:
 
-    communicator:start_link().
+```erlang
+communicator:start_link().
+```
 
 Aby uruchomić klienta należy wykonać następujące polecenie w wierszu poleceń:
-
-    client:start().
-
->**Uwaga:** Aby aplikacja działała poprawnie serwer i klient muszą być uruchomione w osobnych terminalach.
+```erlang
+client:start().
+```
+>**Uwaga:** Aby aplikacja działała poprawnie serwer i klient **muszą być** uruchomione w osobnych terminalach.
 
 ## Instrukcja uruchamiania testów
   
 
 Aby uruchomić testy należy wykonać następujące polecenie: 
-
-    rebar3 do clean, compile, eunit --dir=test, cover --verbose
+```erlang
+rebar3 do clean, compile, eunit --dir=test, cover --verbose
+```
