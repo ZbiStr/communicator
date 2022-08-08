@@ -20,7 +20,7 @@ start_link(Username) ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [Username], []).
 
 start() ->
-	net_kernel:start(temp, #{name_domain => shortnames}),
+	start_node(),
 	erlang:set_cookie(local, ?COOKIE),
 	greet(),
 	help_logged_out(),
@@ -63,13 +63,14 @@ parse_logged_out() ->
 			parse_logged_out();
 		login ->
 			Username = login(),
-			io:format("You have been successfully logged in!~n"),
+			io:format("You have been successfully logged in!~n~n"),
 			help_logged_in(),
 			parse_logged_in(Username);
 		exit ->
+			net_kernel:stop(),
 			io:format("See you later!~n");
 		_ ->
-			io:format("Not available command.~n"),
+			io:format("Not a valid command.~n"),
 			parse_logged_out()
 	end.
 
@@ -139,3 +140,15 @@ exit      to exit the app~n").
 client_node(Username) ->
 	{ok, Host} = inet:gethostname(),
 	list_to_atom(Username ++ "@" ++ Host).
+
+start_node() ->
+	% random lowercase letters
+	Name = [96 + rand:uniform(26) || _ <- lists:seq(1,8)],
+	try net_kernel:start(list_to_atom(Name), #{name_domain => shortnames}) of
+		{ok, _} ->
+			{ok, Host} = inet:gethostname(),
+			list_to_atom(Name ++ "@" ++ Host)
+	catch
+		error:{already_started, _Pid} ->
+			start_node()
+	end.
