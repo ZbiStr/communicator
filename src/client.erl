@@ -42,6 +42,9 @@ callback_mode() ->
 
 handle_event(enter, _OldState, _State, _Data) ->
 	keep_state_and_data;
+handle_event(cast, {message, From, Message}, _State, _Data) ->                                   
+    io:format("From ~p: ~p~n", [From, Message]),                                  
+    keep_state_and_data;
 handle_event(_EventType, _EventContent, _State, _Data) ->
 	keep_state_and_data.
 
@@ -90,6 +93,9 @@ parse_logged_in(Username) ->
 		exit ->
 			logout(Username),
 			io:format("See you later!~n");
+		send ->
+			communicator:send_message_to_all(Username, hejka),
+			parse_logged_in(Username);
 		_ ->
 			io:format("Not available command.~n"),
 			parse_logged_in(Username)
@@ -135,7 +141,8 @@ help_logged_in() ->
 	io:format("You can use the following commands:
 logout    to log out from the server
 help      to view this again
-exit      to exit the app~n").
+exit      to exit the app
+send	  send message to all~n").
 
 client_node(Username) ->
 	{ok, Host} = inet:gethostname(),

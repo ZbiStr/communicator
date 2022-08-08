@@ -4,14 +4,14 @@
 %% API
 -export([stop/0, start_link/0, login/2, logout/1]).
 %% CALLBACK
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, send_message_to_all/2]).
 
 -define(SERVER, ?MODULE).
 -define(NODE_NAME, erlangpol).
 -define(COOKIE, ciasteczko).
 
 -record(state, {clients = #{}}).
--record(client, {address}).
+-record(client, {address, inbox = []}).
 
 % ================================================================================
 % API
@@ -30,6 +30,9 @@ login(Name, Address) ->
 
 logout(Name) ->
     gen_server:call({?SERVER, server_node()}, {logout, Name}).
+
+send_message_to_all(From, Message) ->
+    gen_server:cast({?SERVER, server_node()},{send_message_to_all, From, Message}).
 
 
 % ================================================================================
@@ -57,12 +60,21 @@ handle_call({logout, Name}, _From, State) ->         %przeszukiwanie mapy, jeśl
             UpdatedClients = maps:without([Name], State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
+
 handle_call(stop, _From, State) ->
     net_kernel:stop(),
     {stop, normal, stopped, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast({send_message_to_all, From, Message}, State) ->  
+    {ok, Value} = maps:find(From, State#state.clients),
+    ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
+    [gen_statem:cast(Address, {message, From, Message}) || {_Name, {client, Address, _Inbox}} <- ListWithoutSender], %wysyła wiadomości do wszystkich   
+    UpdateInboxes = [ {Name, {client, Address, Inbox ++ [{From, Message}]}} || {Name, {client, Address, Inbox}} <- ListWithoutSender], %aktualizuje inboxy
+    UpdatedClients = maps:put(From, Value, maps:from_list(UpdateInboxes)),  
+    {noreply, State#state{clients = UpdatedClients}};                           
+    
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
