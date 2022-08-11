@@ -96,16 +96,20 @@ parse_logged_in(Username) ->
 					chat(Username, all),
 					help_logged_in(),
 					parse_logged_in(Username);
-				To -> %user ->
-					%{ok, [To]} = io:fread("Start chat with: ", "~s"),
-					io:format("Private chat with ~p started. Type quit to go back to the main menu~n", [To]),
-					chat(Username, To),
-					help_logged_in(),
+				_ ->
+					io:format("Not available command.~n"),
 					parse_logged_in(Username)
-				%_ ->
-				%	io:format("Not available command.~n"),
-				%	help_logged_in(),
-				%	parse_logged_in(Username)
+					%% case communicator:find_user(To) of 						<--- DO PRYWATNYCH
+					%%  	does_not_exist ->
+					%%			io:format("There is no such user!~n"),
+					%%			help_logged_in(),
+					%%			parse_logged_in(Username);
+					%%		ok ->
+					%%			io:format("Private chat with ~p started. Type quit to go back to the main menu~n", [To]),
+					%%			chat(Username, To),
+					%%			help_logged_in(),
+					%%			parse_logged_in(Username)
+					%%	end
 			end;
 		exit ->
 			logout(Username),
@@ -173,9 +177,9 @@ help_logged_in() ->
 	io:format("You can use the following commands:
 	logout			to log out from the server
 	message all		to send message to all users
-	message Username	to start private chat with user named Username
 	help			to view this again
 	exit			to exit the app~n").
+%% DO PRYWATNYCH: message Username	to start private chat with user named Username
 
 client_node(Username) ->
 	{ok, Host} = inet:gethostname(),

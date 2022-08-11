@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, login/2, logout/1, send_message/3]).
+-export([stop/0, start_link/0, login/2, logout/1, send_message/3, find_user/1]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -34,6 +34,9 @@ logout(Name) ->
 send_message(From, To, Message) ->
     gen_server:cast({?SERVER, server_node()},{send_message, From, To, Message}).
 
+find_user(Name) ->
+    gen_server:call({?SERVER, server_node()}, {find_user, Name}).
+
 % ================================================================================
 % CALLBACK
 % ================================================================================
@@ -62,6 +65,13 @@ handle_call({logout, Name}, _From, State) ->
             UpdatedClients = maps:without([Name], State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
+handle_call({find_user, Name}, _From, State) ->         
+    case maps:get(Name, State#state.clients, not_found) of 
+        not_found ->
+            {reply, does_not_exist, State#state{}};
+        {client,_Address,_Inbox} ->
+            {reply, ok, State#state{}}
+    end;
 handle_call(stop, _From, State) ->
     net_kernel:stop(),
     {stop, normal, stopped, State};
@@ -76,7 +86,6 @@ handle_cast({send_message, From, To, Message}, State) ->
             %% Dodanie nadawcy z powrotem do listy użytkownyków i zwrócenie zaktualizowanej listy.
             {ok, Value} = maps:find(From, State#state.clients),
             ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
-            io:format("lista uzytkownikow bez nadawcy ~p~n", [ListWithoutSender]),
             [gen_statem:cast(Address, {message, From, Message}) || {_Name, {client, Address, _Inbox}} <- ListWithoutSender],   
             UpdatedInboxes = [ {Name, {client, Address, Inbox ++ [{From, Message}]}} || {Name, {client, Address, Inbox}} <- ListWithoutSender], 
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),  
@@ -85,17 +94,11 @@ handle_cast({send_message, From, To, Message}, State) ->
             %% Zwrócenie error w przypadku gdy odbiorcy nie ma w liście użytkowników,
             %% wysłanie wiadomości w przeciwnym przypadku, aktualizacja skrzynki odbiorczej
             %% i zwrócenie zaktualizowanej listy.
-            case maps:find(To, State#state.clients) of
-                {ok, {client, Address, Inbox}} ->
-                    gen_statem:cast(Address, {message, From, Message}),
-                    UpdatedInbox = Inbox ++ [{From, Message}],
-                    UpdatedClients = maps:update(To, {client, Address, UpdatedInbox}, State#state.clients),
-                    {noreply, State#state{clients = UpdatedClients}};     
-                error ->
-                    {ok, {client, Address, _Inbox}} = maps:find(From, State#state.clients),
-                    gen_statem:cast(Address, {message, server, "There is no such user!"}),
-                    {noreply, State}
-            end   
+            {ok, {client, Address, Inbox}} = maps:find(To, State#state.clients),  
+            gen_statem:cast(Address, {message, From, Message}),
+            UpdatedInbox = Inbox ++ [{From, Message}],
+            UpdatedClients = maps:update(To, {client, Address, UpdatedInbox}, State#state.clients),
+            {noreply, State#state{clients = UpdatedClients}}             
     end;  
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -111,6 +114,7 @@ terminate(_Reason, _State) ->
 % ================================================================================
 % INTERNAL FUNCTIONS
 % ================================================================================
+
 server_node() ->
     {ok, Host} = inet:gethostname(),
     list_to_atom(atom_to_list(?NODE_NAME) ++ "@" ++ Host).
