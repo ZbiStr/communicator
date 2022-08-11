@@ -91,8 +91,7 @@ handle_cast({send_message, From, To, Message}, State) ->
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),  
             {noreply, State#state{clients = UpdatedClients}}; 
         _ ->
-            %% Zwrócenie error w przypadku gdy odbiorcy nie ma w liście użytkowników,
-            %% wysłanie wiadomości w przeciwnym przypadku, aktualizacja skrzynki odbiorczej
+            %% wysłanie wiadomości, aktualizacja skrzynki odbiorczej
             %% i zwrócenie zaktualizowanej listy.
             {ok, {client, Address, Inbox}} = maps:find(To, State#state.clients),  
             gen_statem:cast(Address, {message, From, Message}),
