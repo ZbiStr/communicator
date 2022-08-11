@@ -52,11 +52,9 @@ terminate(_Reason, _State, [Username] = _Data) ->
 	communicator:logout(Username),
 	net_kernel:stop().
 
-
 % ================================================================================
 % INTERNAL
 % ================================================================================
-
 
 parse_logged_out() ->
 	{ok, [Command]} = io:fread("", "~a"),
@@ -90,12 +88,28 @@ parse_logged_in(Username) ->
 				ok ->
 					start()
 			end;
+		message ->
+			{ok, [Option]} = io:fread("", "~s"),
+			case Option of 
+				"all" ->
+					io:format("Chat with all users started. Type quit to go back to the main menu~n"),
+					chat(Username, all),
+					help_logged_in(),
+					parse_logged_in(Username);
+				To -> %user ->
+					%{ok, [To]} = io:fread("Start chat with: ", "~s"),
+					io:format("Private chat with ~p started. Type quit to go back to the main menu~n", [To]),
+					chat(Username, To),
+					help_logged_in(),
+					parse_logged_in(Username)
+				%_ ->
+				%	io:format("Not available command.~n"),
+				%	help_logged_in(),
+				%	parse_logged_in(Username)
+			end;
 		exit ->
 			logout(Username),
 			io:format("See you later!~n");
-		send ->
-			communicator:send_message_to_all(Username, hejka),
-			parse_logged_in(Username);
 		_ ->
 			io:format("Not available command.~n"),
 			parse_logged_in(Username)
@@ -125,6 +139,24 @@ logout(Username) ->
 	end,
 	Logout.
 
+chat(From, To) ->
+	Message = string:strip(io:get_line("> "), right, $\n),
+	case Message of
+		"quit" ->
+			{ok, [Y_N]} = io:fread("Do you want to quit? (y/n) ", "~a"),
+			%% ten case jest na wypadek gdyby ktoś chciał wysłać komuś słowo "quit",
+			%% a jakoś trzeba dać możliwość wyjścia z czatu.
+			case Y_N of
+				y -> io:format("Chat ended.~n");
+				n -> 
+					communicator:send_message(From, To, Message),
+					chat(From, To)
+				end;
+		_ ->
+			communicator:send_message(From, To, Message),
+			chat(From, To)
+	end.
+
 greet() ->
 	io:format("
 ////////////////////////////////////////////
@@ -139,10 +171,11 @@ exit      to exit the app~n").
 
 help_logged_in() ->
 	io:format("You can use the following commands:
-logout    to log out from the server
-help      to view this again
-exit      to exit the app
-send	  send message to all~n").
+	logout			to log out from the server
+	message all		to send message to all users
+	message Username	to start private chat with user named Username
+	help			to view this again
+	exit			to exit the app~n").
 
 client_node(Username) ->
 	{ok, Host} = inet:gethostname(),

@@ -2,16 +2,16 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, login/2, logout/1]).
+-export([stop/0, start_link/0, login/2, logout/1, send_message/3]).
 %% CALLBACK
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, send_message_to_all/2]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -define(SERVER, ?MODULE).
 -define(NODE_NAME, erlangpol).
 -define(COOKIE, ciasteczko).
 
 -record(state, {clients = #{}}).
--record(client, {address, inbox = []}).
+-record(client, {address, inbox=[]}).
 
 % ================================================================================
 % API
@@ -31,9 +31,8 @@ login(Name, Address) ->
 logout(Name) ->
     gen_server:call({?SERVER, server_node()}, {logout, Name}).
 
-send_message_to_all(From, Message) ->
-    gen_server:cast({?SERVER, server_node()},{send_message_to_all, From, Message}).
-
+send_message(From, To, Message) ->
+    gen_server:cast({?SERVER, server_node()},{send_message, From, To, Message}).
 
 % ================================================================================
 % CALLBACK
@@ -43,38 +42,61 @@ init(_Args) ->
     erlang:set_cookie(local, ?COOKIE),
     {ok, #state{}}.
 
-handle_call({login, Name, Address}, _From, State) ->     %przeszukiwanie mapy, jeśli nie ma w niej użytkownika Name, 
-    case maps:get(Name, State#state.clients, not_found) of      %to go dodaje, jeśli jest, zwraca already_exists
+handle_call({login, Name, Address}, _From, State) ->
+    %% Przeszukiwanie mapy, zwrócenie already_exists w przypadku gdy użytkownik Name 
+    %% już w niej występuje, dodanie go w przeciwnym przypadku.
+    case maps:get(Name, State#state.clients, not_found) of   
         not_found ->
             UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}};
-        {client, Address} ->
+        {client,_Address,_Inbox} ->
             {reply, already_exists, State#state{}}
     end;
-handle_call({logout, Name}, _From, State) ->         %przeszukiwanie mapy, jeśli nie ma w niej użytkownika Name, 
-    case maps:get(Name, State#state.clients, not_found) of      %to zwraca does_not_exists, jeśli jest, to go usuwa
+handle_call({logout, Name}, _From, State) ->         
+    %% Przeszukiwanie mapy, zwrócenie does_not_exists w przypadku gdy użytkownik Name 
+    %% w niej nie występuje, usunięcie go w przeciwnym przypadku.
+    case maps:get(Name, State#state.clients, not_found) of 
         not_found ->
             {reply, does_not_exist, State#state{}};
-
-        {client, _Address} ->
+        {client,_Address,_Inbox} ->
             UpdatedClients = maps:without([Name], State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
-
 handle_call(stop, _From, State) ->
     net_kernel:stop(),
     {stop, normal, stopped, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({send_message_to_all, From, Message}, State) ->  
-    {ok, Value} = maps:find(From, State#state.clients),
-    ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
-    [gen_statem:cast(Address, {message, From, Message}) || {_Name, {client, Address, _Inbox}} <- ListWithoutSender], %wysyła wiadomości do wszystkich   
-    UpdateInboxes = [ {Name, {client, Address, Inbox ++ [{From, Message}]}} || {Name, {client, Address, Inbox}} <- ListWithoutSender], %aktualizuje inboxy
-    UpdatedClients = maps:put(From, Value, maps:from_list(UpdateInboxes)),  
-    {noreply, State#state{clients = UpdatedClients}};                           
-    
+handle_cast({send_message, From, To, Message}, State) ->  
+    case To of 
+        all ->
+            %% Usuwanie nadawcy z listy użytkowników do których ma trafić wiadomość, 
+            %% wysyłanie wiadomości i aktualizacja skrzynek odbiorczych.
+            %% Dodanie nadawcy z powrotem do listy użytkownyków i zwrócenie zaktualizowanej listy.
+            {ok, Value} = maps:find(From, State#state.clients),
+            ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
+            io:format("lista uzytkownikow bez nadawcy ~p~n", [ListWithoutSender]),
+            [gen_statem:cast(Address, {message, From, Message}) || {_Name, {client, Address, _Inbox}} <- ListWithoutSender],   
+            UpdatedInboxes = [ {Name, {client, Address, Inbox ++ [{From, Message}]}} || {Name, {client, Address, Inbox}} <- ListWithoutSender], 
+            UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),  
+            {noreply, State#state{clients = UpdatedClients}}; 
+        _ ->
+            %% Zwrócenie error w przypadku gdy odbiorcy nie ma w liście użytkowników,
+            %% wysłanie wiadomości w przeciwnym przypadku, aktualizacja skrzynki odbiorczej
+            %% i zwrócenie zaktualizowanej listy.
+            case maps:find(To, State#state.clients) of
+                {ok, {client, Address, Inbox}} ->
+                    gen_statem:cast(Address, {message, From, Message}),
+                    UpdatedInbox = Inbox ++ [{From, Message}],
+                    UpdatedClients = maps:update(To, {client, Address, UpdatedInbox}, State#state.clients),
+                    {noreply, State#state{clients = UpdatedClients}};     
+                error ->
+                    {ok, {client, Address, _Inbox}} = maps:find(From, State#state.clients),
+                    gen_statem:cast(Address, {message, server, "There is no such user!"}),
+                    {noreply, State}
+            end   
+    end;  
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
