@@ -1,6 +1,5 @@
 # Protokół
 
-
 Niniejszy dokument zawiera opis protokołu komunikacyjnego pomiędzy serwerem a klientem.
 
 ## Sposób komunkacji
@@ -36,3 +35,17 @@ Serwer ->> Klient: {error, does_not_exist}
 end
 ```
 Klient wysyła do serwera wiadomość w postaci logout(Username). Jeżeli zapytanie zostało poprawnie przetworzne, serwer odpowiada "ok". Jeżeli nastąpił błąd to serwer odpowiada "{error, does_not_exist}".
+
+### Message all
+
+```mermaid
+sequenceDiagram
+Klient1 ->> Serwer: send_message(From, To, Message)
+Serwer ->> Serwer: zapisanie wiadomości
+par Serwer to Klient2
+Serwer->>Klient2: {From, Message}
+and Serwer to Klient3
+Serwer->>Klient3: {From, Message}
+end
+```
+Klient wysyła do serwera wiadomość w postaci send_message(From, To, Message). Jeżeli zapytanie zostało poprawnie przetworzne, serwer wysyła wiadomość do wszystkich zalogowanych użytkowników w postaci {From, Message}.
