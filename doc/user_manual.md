@@ -31,9 +31,10 @@ W przypadku poprawnego połączenia pojawi się komunikat:
 Hello <Username>!
 You have been successfully logged in!
 You can use the following commands:
-logout    to log out from the server
-help      to view this again
-exit      to exit the app
+logout          to log out from the server
+message all     to send message to all users
+help            to view this again
+exit            to exit the app
 ```
 
 Jeżeli nazwa będzie zajęta, pojawi się komunikat:
@@ -41,7 +42,24 @@ Jeżeli nazwa będzie zajęta, pojawi się komunikat:
 ```
 Username already logged on
 ```
- 
+
+Po wybraniu opcji `message all`  pojawi się komunikat:
+
+```
+Chat with all users started. Type quit to go back to the main menu
+>
+```
+Po wpisaniu dowolnego ciągu znaków, wiadomość zostanie przekazana do serwera, który prześle ją do wszystkich zalogowanych użytkowników.
+
+Aby wyjść z czatu, należy wpisać `quit`, pojawi się komunikat:
+
+```
+Do you want to quit? (y/n)
+```
+Po wpisaniu `y` powrócimy do menu zalogowanego użytkownika.
+
+Po wpisaniu `n` powrócimy do czatu.
+
 Po wybraniu opcji `logout` klient rozłączy się z serwerem i powróci do ekranu początkowego, co potwierdzi komunikat:
 
 ```
@@ -86,6 +104,10 @@ Użytkownik wpisuje polecenie `help`. Klient wyświetli wszystkie dostępne kome
 ### logout - wylogowanie użytkownika
 
 Użytkownik wpisuje polecenie `logout`. Klient wylogowuje użytkownika z serwera i prezentuje początkowy ekran logowania.
+
+### message all - wysłanie wiadomości do wszystkich zalogowanych użytkowników
+
+Użytkownik wpisuje polecenie `message all`. Pojawia się okno czatu, z którego można wysłać wiadomości do wszystkich zalogowanych użytkowników.
 
 ### exit - wyjście z aplikacji
 
