@@ -71,7 +71,7 @@ parse_logged_out() ->
 			net_kernel:stop(),
 			io:format("See you later!~n");
 		_ ->
-			io:format("Not a valid command.~n"),
+			io:format("Not available command.~n"),
 			parse_logged_out()
 	end.
 
@@ -175,10 +175,10 @@ exit      to exit the app~n").
 
 help_logged_in() ->
 	io:format("You can use the following commands:
-	logout			to log out from the server
-	message all		to send message to all users
-	help			to view this again
-	exit			to exit the app~n").
+logout			to log out from the server
+message all		to send message to all users
+help			to view this again
+exit			to exit the app~n").
 %% DO PRYWATNYCH: message Username	to start private chat with user named Username
 
 client_node(Username) ->
