@@ -30,6 +30,7 @@ W przypadku poprawnego połączenia pojawi się komunikat:
 ```
 Hello <Username>!
 You have been successfully logged in!
+
 You can use the following commands:
 logout          to log out from the server
 message all     to send message to all users
