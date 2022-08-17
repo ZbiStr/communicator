@@ -70,7 +70,7 @@ handle_call({logout, Name}, _From, State) ->
             UpdatedClients = maps:without([Name], State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
-handle_call({find_user, Name}, _From, State) ->         
+handle_call({find_user, Name}, _From, State) ->  
     case maps:get(Name, State#state.clients, not_found) of 
         not_found ->
             {reply, does_not_exist, State#state{}};

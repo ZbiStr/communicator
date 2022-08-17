@@ -70,25 +70,8 @@ logged_in({call, From}, logout, Data) ->
 logged_in({call, From}, help, _Data) ->
 	help_logged_in(),
 	{keep_state_and_data, {reply, From, ok}};
-logged_in({call, From}, {message, To, Message}, Data) ->
-	case To of 
-		all ->
-			communicator:send_message(Data#data.username, To, Message);
-		_ ->
-			io:format("Not an available command.~n")
-			%% case communicator:find_user(To) of 						<--- DO PRYWATNYCH
-			%%  	does_not_exist ->
-			%%			io:format("There is no such user!~n"),
-			%%			help_logged_in(),
-			%%			parse_logged_in(Username);
-			%%		ok ->
-			%%			io:format("Private chat with ~p started. Type quit to go back to the main menu~n", [To]),
-			%%			chat(Username, To),
-			%%			help_logged_in(),
-			%%			parse_logged_in(Username)
-			%%	end
-	end,
-	{keep_state_and_data, {reply, From, ok}};
+logged_in({call, From}, message, Data) ->
+	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, chat, Data) ->
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
@@ -97,7 +80,7 @@ logged_in({call, From}, {set_pass, Password}, Data) ->
 logged_in({call, From}, _, _Data) ->
 	handle_unknown(From);
 logged_in(cast, {message, From, Message}, _Data) ->
-	io:format("From ~p: ~p~n", [From, Message]),                                  
+	io:format("From ~s: ~s~n", [From, Message]),                                  
     keep_state_and_data.
 
 terminate(_Reason, _State, Data) ->
@@ -126,32 +109,46 @@ read_commands() ->
 		chat ->
 			case gen_statem:call(?MODULE, chat) of
 				{ok, Username} ->
-					To = Opts,
-					case To of 
+					To = atom_to_list(Opts),
+					io:format("To ~p~n", [To]),
+					case Opts of 
 						all ->
 							io:format("Chat with all users started. Type quit to go back to the main menu~n"),
 							chat(Username, all);
 						_ ->
-							io:format("Not an available command.~n")
-							%% case communicator:find_user(To) of 						<--- DO PRYWATNYCH
-							%%  	does_not_exist ->
-							%%			io:format("There is no such user!~n"),
-							%%			help_logged_in(),
-							%%			parse_logged_in(Username);
-							%%		ok ->
-							%%			io:format("Private chat with ~p started. Type quit to go back to the main menu~n", [To]),
-							%%			chat(Username, To),
-							%%			help_logged_in(),
-							%%			parse_logged_in(Username)
-							%%	end
+							case communicator:find_user(To) of
+							  	does_not_exist ->
+										io:format("There is no such user!~n");
+								ok ->
+										io:format("Private chat with ~p started. Type quit to go back to the main menu~n", [To]),
+										chat(Username, To)
+								end
 					end;
 				_ ->
 					ok
 			end;
 		message ->
-			To = Opts,
-			Message = string:trim(io:get_line("> "), trailing, [$\n]),
-			gen_statem:call(?MODULE, {message, To, Message});
+			case gen_statem:call(?MODULE, message) of
+				{ok, Username} ->
+					To = atom_to_list(Opts),
+					case Opts of 
+						all ->
+							Message = string:trim(io:get_line("> "), trailing, [$\n]),
+							communicator:send_message(Username, all, Message),
+							io:format("You sended message to all users~n");
+						_ ->
+							case communicator:find_user(To) of
+							  	does_not_exist ->
+										io:format("There is no such user!~n");
+								ok ->
+										Message = string:trim(io:get_line("> "), trailing, [$\n]),
+										communicator:send_message(Username, To, Message),
+										io:format("You sended message to ~p~n", [To])
+								end
+					end;
+				_ ->
+					ok
+				end;
 		login ->
 			{ok, [Username]} = io:fread("Please input your username: ", "~s"),
 			gen_statem:call(?MODULE, {login, Username});
@@ -189,8 +186,6 @@ chat(From, To) ->
 	case Message of
 		"quit" ->
 			{ok, [Y_N]} = io:fread("Do you want to quit? (y/n) ", "~a"),
-			%% ten case jest na wypadek gdyby ktoś chciał wysłać komuś słowo "quit",
-			%% a jakoś trzeba dać możliwość wyjścia z czatu.
 			case Y_N of
 				y ->
 					io:format("Chat ended.~n");
