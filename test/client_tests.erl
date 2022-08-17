@@ -25,8 +25,10 @@ all_test_() ->
 		]
 	}.
   
+% SETUP
 
 start_system() ->
+	% client1's node = master node
 	{ok, _} = net_kernel:start(?CLIENT1, #{name_domain => shortnames}),
 	erlang:set_cookie(?COOKIE),
 
@@ -34,6 +36,7 @@ start_system() ->
 	% this is pretty bad
 	SrcPath = "./src",
 	Args = io_lib:format("-setcookie ~s -pa \"~s\"", [?COOKIE, SrcPath]),
+	% separate nodes for client2 and server
 	{ok, NodeClient2} = slave:start(Host, ?CLIENT2, Args),
 	{ok, NodeServer} = slave:start(Host, ?SERVER, Args),
 
@@ -47,11 +50,14 @@ stop_system(_) ->
 	% must be stopped last cause currently it also stops its node (the master node of these tests)
 	ok = gen_statem:stop(client).
 
+% TESTCASES
+
+% testing should be done on client1's node (this node)
 login_successful() ->
 	ok = gen_statem:call(client, {login, ?NAME1}).
 
 login_already_exists() ->
-	ok = gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME1}),
+	gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME1}),
 	already_exists = gen_statem:call(client, {login, ?NAME1}).
 
 logout() ->

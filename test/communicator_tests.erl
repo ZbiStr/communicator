@@ -11,9 +11,12 @@ all_test_() ->
         ]
     }.
 
+% SETUP
 
 start_system() ->
     {ok, _} = communicator:start_link().
 
 stop_system(_) ->
     ok = communicator:stop().
+
+% TESTCASES
