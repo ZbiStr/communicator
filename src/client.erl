@@ -91,6 +91,9 @@ logged_in({call, From}, {message, To, Message}, Data) ->
 	{keep_state_and_data, {reply, From, ok}};
 logged_in({call, From}, chat, Data) ->
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
+logged_in({call, From}, {set_pass, Password}, Data) ->
+	communicator:set_password(Data#data.username, Password),
+	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, _, _Data) ->
 	handle_unknown(From);
 logged_in(cast, {message, From, Message}, _Data) ->
@@ -152,6 +155,9 @@ read_commands() ->
 		login ->
 			{ok, [Username]} = io:fread("Please input your username: ", "~s"),
 			gen_statem:call(?MODULE, {login, Username});
+		set_pass ->
+			{ok, [Password]} = io:fread("Please input desired password: ", "~s"),
+			gen_statem:call(?MODULE, {set_pass, Password});
 		_ ->
 			gen_statem:call(?MODULE, Command)			
 	end,
@@ -218,6 +224,7 @@ help_logged_in() ->
 logout			to log out from the server
 message all		to send a message to all users
 chat all		to chat with all users
+set_pass		to set a new password
 help			to view this again
 exit			to exit the app~n").
 %% DO PRYWATNYCH: message Username	to start private chat with user named Username
