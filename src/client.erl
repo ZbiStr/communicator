@@ -47,7 +47,7 @@ callback_mode() ->
 logged_out({call, From}, {login, Username}, Data) ->
 	case login(Username, Data#data.address) of
 		already_exists ->
-			{keep_state_and_data, {reply, From, ok}};
+			{keep_state_and_data, {reply, From, already_exists}};
 		ok ->
 			help_logged_in(),
 			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}}
@@ -62,7 +62,7 @@ logged_in({call, From}, logout, Data) ->
 	case logout(Data#data.username) of
 		does_not_exist ->
 			% that would make no sense but it can stay in for now
-			{keep_state_and_data, {reply, From, ok}};
+			{keep_state_and_data, {reply, From, does_not_exist}};
 		ok ->
 			help_logged_out(),
 			{next_state, logged_out, Data#data{username = ""}, {reply, From, ok}}
@@ -105,7 +105,11 @@ terminate(_Reason, _State, Data) ->
 		"" ->
 			ok;
 		Username ->
-			logout(Username)
+			try logout(Username)
+			catch
+				exit:_ ->
+					ok
+			end
 	end,
 	net_kernel:stop().
 
