@@ -158,7 +158,8 @@ read_commands() ->
 			gen_statem:call(?MODULE, {login, Username});
 		set_pass ->
 			{ok, [Password]} = io:fread("Please input desired password: ", "~s"),
-			gen_statem:call(?MODULE, {set_pass, Password});
+			gen_statem:call(?MODULE, {set_pass, Password}),
+			io:format("Password has been set ~n");
 		_ ->
 			gen_statem:call(?MODULE, Command)			
 	end,
