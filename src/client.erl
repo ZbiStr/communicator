@@ -222,7 +222,9 @@ help_logged_in() ->
 	io:format("You can use the following commands:
 logout			to log out from the server
 message all		to send a message to all users
+message Username	to send a message to user called Username
 chat all		to chat with all users
+chat Username	to start private chat with user called Username
 set_pass		to set a new password
 help			to view this again
 exit			to exit the app~n").
