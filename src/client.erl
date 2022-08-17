@@ -70,9 +70,9 @@ logged_in({call, From}, logout, Data) ->
 logged_in({call, From}, help, _Data) ->
 	help_logged_in(),
 	{keep_state_and_data, {reply, From, ok}};
-logged_in({call, From}, message, Data) ->
+logged_in({call, From}, send, Data) ->
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
-logged_in({call, From}, chat, Data) ->
+logged_in({call, From}, active_users, Data) ->
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
 	communicator:set_password(Data#data.username, Password),
@@ -110,49 +110,35 @@ read_commands() ->
 		exit ->
 			gen_statem:stop(?MODULE),
 			exit(normal);
-		chat ->
-			case gen_statem:call(?MODULE, chat) of
+		send ->
+			case gen_statem:call(?MODULE, send) of
 				{ok, Username} ->
 					To = atom_to_list(Opts),
-					io:format("To ~p~n", [To]),
-					case Opts of 
-						all ->
-							io:format("Chat with all users started. Type quit to go back to the main menu~n"),
-							chat(Username, all);
+					case To of 
+						[] ->
+							Message = string:trim(io:get_line("Message > "), trailing, [$\n]),
+							communicator:send_message(Username, all, Message),
+							io:format("You sent a message to all users~n");
 						_ ->
 							case communicator:find_user(To) of
 							  	does_not_exist ->
 										io:format("There is no such user!~n");
 								ok ->
-										io:format("Private chat with ~p started. Type quit to go back to the main menu~n", [To]),
-										chat(Username, To)
-								end
+										Message = string:trim(io:get_line("Message > "), trailing, [$\n]),
+										communicator:send_message(Username, To, Message),
+										io:format("You sent a message to ~p~n", [To])
+							end
 					end;
 				_ ->
 					ok
 			end;
-		message ->
-			case gen_statem:call(?MODULE, message) of
-				{ok, Username} ->
-					To = atom_to_list(Opts),
-					case Opts of 
-						all ->
-							Message = string:trim(io:get_line("> "), trailing, [$\n]),
-							communicator:send_message(Username, all, Message),
-							io:format("You sended message to all users~n");
-						_ ->
-							case communicator:find_user(To) of
-							  	does_not_exist ->
-										io:format("There is no such user!~n");
-								ok ->
-										Message = string:trim(io:get_line("> "), trailing, [$\n]),
-										communicator:send_message(Username, To, Message),
-										io:format("You sended message to ~p~n", [To])
-								end
-					end;
+		users ->
+			case gen_statem:call(?MODULE, active_users) of
+				{ok, _Username} ->
+					io:format("List of active users: ~p~n", [communicator:show_active_users()]);
 				_ ->
 					ok
-				end;
+			end;
 		login ->
 			{ok, [Username]} = io:fread("Please input your username: ", "~s"),
 			gen_statem:call(?MODULE, {login, Username});
@@ -185,23 +171,6 @@ logout(Username) ->
 	end,
 	Logout.
 
-chat(From, To) ->
-	Message = string:trim(io:get_line("> "), trailing, [$\n]),
-	case Message of
-		"quit" ->
-			{ok, [Y_N]} = io:fread("Do you want to quit? (y/n) ", "~a"),
-			case Y_N of
-				y ->
-					io:format("Chat ended.~n");
-				n -> 
-					communicator:send_message(From, To, Message),
-					chat(From, To)
-				end;
-		_ ->
-			communicator:send_message(From, To, Message),
-			chat(From, To)
-	end.
-
 handle_unknown(From) ->
 	io:format("Not a viable command~n"),
 	{keep_state_and_data, {reply, From, unknown}}.
@@ -221,12 +190,12 @@ exit      to exit the app~n").
 help_logged_in() ->
 	io:format("You can use the following commands:
 logout			to log out from the server
-message all		to send a message to all users
-chat all		to chat with all users
+send		to send a message to all users
+send Username	to send a message to user called Username
+users			to show the list of active users
 set_pass		to set a new password
 help			to view this again
 exit			to exit the app~n").
-%% DO PRYWATNYCH: message Username	to start private chat with user named Username
 
 start_node() ->
 	% random lowercase letters

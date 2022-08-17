@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, login/2, logout/1, send_message/3, find_user/1]).
+-export([stop/0, start_link/0, login/2, logout/1, send_message/3, set_password/2, find_user/1, show_active_users/0]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -11,7 +11,7 @@
 -define(COOKIE, ciasteczko).
 
 -record(state, {clients = #{}}).
--record(client, {address, inbox=[]}).
+-record(client, {address = undefined, inbox=[], password = undefined}).
 
 % ================================================================================
 % API
@@ -34,8 +34,15 @@ logout(Name) ->
 send_message(From, To, Message) ->
     gen_server:cast({?SERVER, server_node()},{send_message, From, To, Message}).
 
+set_password(Name, Password) ->
+    gen_server:call({?SERVER, server_node()}, {password, Name, Password}).
+    
+
 find_user(Name) ->
     gen_server:call({?SERVER, server_node()}, {find_user, Name}).
+
+show_active_users() ->
+    gen_server:call({?SERVER, server_node()}, show_active_users).
 
 % ================================================================================
 % CALLBACK
@@ -57,7 +64,7 @@ handle_call({login, Name, Address}, _From, State) ->
         not_found ->
             UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}};
-        {client,_OtherAddress,_Inbox} ->
+        _Client ->
             {reply, already_exists, State#state{}}
     end;
 handle_call({logout, Name}, _From, State) ->         
@@ -66,7 +73,7 @@ handle_call({logout, Name}, _From, State) ->
     case maps:get(Name, State#state.clients, not_found) of 
         not_found ->
             {reply, does_not_exist, State#state{}};
-        {client,_Address,_Inbox} ->
+        _Client ->
             UpdatedClients = maps:without([Name], State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
@@ -74,14 +81,23 @@ handle_call({find_user, Name}, _From, State) ->
     case maps:get(Name, State#state.clients, not_found) of 
         not_found ->
             {reply, does_not_exist, State#state{}};
-        {client,_Address,_Inbox} ->
+        _Client ->
             {reply, ok, State#state{}}
     end;
+handle_call(show_active_users, _From, State) ->  
+    ListOfUsers = maps:to_list(State#state.clients), 
+    ActiveUsers = [ Name || {Name, Client} <- ListOfUsers, Client#client.address =/= undefined ],
+    {reply, ActiveUsers, State#state{}};
 handle_call(stop, _From, State) ->
     net_kernel:stop(),
     {stop, normal, stopped, State};
+handle_call({password, Name, Password}, _From, State) ->        
+    Client = maps:get(Name, State#state.clients),
+    UpdatedClients = maps:put(Name, Client#client{password = Password}, State#state.clients),
+    {reply, ok, State#state{clients = UpdatedClients}};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
+    
 
 handle_cast({send_message, From, To, Message}, State) ->  
     case To of 
@@ -91,18 +107,17 @@ handle_cast({send_message, From, To, Message}, State) ->
             %% Dodanie nadawcy z powrotem do listy użytkownyków i zwrócenie zaktualizowanej listy.
             {ok, Value} = maps:find(From, State#state.clients),
             ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
-            [gen_statem:cast(Address, {message, From, Message}) || {_Name, {client, Address, _Inbox}} <- ListWithoutSender],   
-            UpdatedInboxes = [ {Name, {client, Address, Inbox ++ [{From, Message}]}} || {Name, {client, Address, Inbox}} <- ListWithoutSender], 
+            [gen_statem:cast(Client#client.address, {message, From, Message}) || {_Name, Client} <- ListWithoutSender],   
+            UpdatedInboxes = [ {Name, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}} || {Name, Client} <- ListWithoutSender], 
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),  
-            {noreply, State#state{clients = UpdatedClients}}; 
+            {noreply, State#state{clients = UpdatedClients}};
         _ ->
             %% wysłanie wiadomości, aktualizacja skrzynki odbiorczej
             %% i zwrócenie zaktualizowanej listy.
-            {ok, {client, Address, Inbox}} = maps:find(To, State#state.clients),  
-            gen_statem:cast(Address, {message, From, Message}),
-            UpdatedInbox = Inbox ++ [{From, Message}],
-            UpdatedClients = maps:update(To, {client, Address, UpdatedInbox}, State#state.clients),
-            {noreply, State#state{clients = UpdatedClients}}             
+            {ok, Client} = maps:find(To, State#state.clients),
+            gen_statem:cast(Client#client.address, {message, From, Message}),
+            UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}, State#state.clients),
+            {noreply, State#state{clients = UpdatedClients}}           
     end;  
 handle_cast(_Msg, State) ->
     {noreply, State}.
