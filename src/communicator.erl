@@ -41,7 +41,12 @@ find_user(Name) ->
 % CALLBACK
 % ================================================================================
 init(_Args) ->
-    net_kernel:start(?NODE_NAME, #{name_domain => shortnames}),
+    case node() of
+        'nonode@nohost' ->
+            net_kernel:start(?NODE_NAME, #{name_domain => shortnames});
+        _ ->
+            ok
+    end,
     erlang:set_cookie(local, ?COOKIE),
     {ok, #state{}}.
 
@@ -52,7 +57,7 @@ handle_call({login, Name, Address}, _From, State) ->
         not_found ->
             UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}};
-        {client,_Address,_Inbox} ->
+        {client,_OtherAddress,_Inbox} ->
             {reply, already_exists, State#state{}}
     end;
 handle_call({logout, Name}, _From, State) ->         
