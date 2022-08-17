@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, login/2, logout/1, send_message/3, find_user/1]).
+-export([stop/0, start_link/0, login/2, logout/1, send_message/3, set_password/2, find_user/1]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -11,7 +11,7 @@
 -define(COOKIE, ciasteczko).
 
 -record(state, {clients = #{}}).
--record(client, {address, inbox=[]}).
+-record(client, {address, inbox=[], password = undefined}).
 
 % ================================================================================
 % API
@@ -33,6 +33,10 @@ logout(Name) ->
 
 send_message(From, To, Message) ->
     gen_server:cast({?SERVER, server_node()},{send_message, From, To, Message}).
+
+set_password(Name, Password) ->
+    gen_server:call({?SERVER, server_node()}, {password, Name, Password}).
+    
 
 find_user(Name) ->
     gen_server:call({?SERVER, server_node()}, {find_user, Name}).
@@ -81,7 +85,12 @@ handle_call(stop, _From, State) ->
     net_kernel:stop(),
     {stop, normal, stopped, State};
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+    {reply, ok, State};
+handle_call({password, Name, Password}, _From, State) ->        
+    Client = maps:get(Name, State#state.clients),
+    UpdatedClients = maps:put(Name, Client#client{password = Password}, State#state.clients),
+    {reply, ok, State#state{clients = UpdatedClients}}.
+    
 
 handle_cast({send_message, From, To, Message}, State) ->  
     case To of 
