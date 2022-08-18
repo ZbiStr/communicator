@@ -99,10 +99,11 @@ handle_call({password, Name, Password}, _From, State) ->
     UpdatedClients = maps:put(Name, Client#client{password = Password}, State#state.clients),
     {reply, ok, State#state{clients = UpdatedClients}};
 handle_call({find_password, Name}, _From, State) ->
- 	case maps:find(Name, State#state.clients) of      %szukam po Name (uzytkownik w domysle istnieje) 
-        {ok, {client, _Address, undefined}} ->		%niezdefiniowany logowanie bez hasla, jesli chce przypisujemy pierwsze haslo
+    {ok, Client} = maps:find(Name, State#state.clients), %szukam po Name 
+ 	case Client#client.password of     
+        undefined ->		%niezdefiniowany logowanie bez hasla, jesli chce przypisujemy pierwsze haslo
             undefined;
-        {ok, {client, _Address, Password}} ->		%zdefiniowany, logowanie z haslem, jesli chce moze zmienic haslo, zwracam haslo
+        Password ->		%zdefiniowany, logowanie z haslem, jesli chce moze zmienic haslo, zwracam haslo
             Password                              %zwracam haslo, żeby pozniej porownac w cliencie
     end;
 handle_call(_Request, _From, State) ->
