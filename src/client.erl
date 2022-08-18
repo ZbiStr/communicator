@@ -44,7 +44,7 @@ callback_mode() ->
 	state_functions.
 
 logged_out({call, From}, {login, Username}, Data) ->
-	case communicator:login(Username, Data#data.address) of
+	case communicator:login(Username, {?MODULE, Data#data.address}) of
 		already_exists ->
 			{keep_state_and_data, {reply, From, already_exists}};
 		ok ->

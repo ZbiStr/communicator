@@ -102,7 +102,6 @@ handle_call(_Request, _From, State) ->
 handle_cast({send_message, From, To, Message}, State) ->  
     case To of 
         all ->
-            io:format("~p", [State#state.clients]),
             %% Usuwanie nadawcy z listy użytkowników do których ma trafić wiadomość, 
             %% wysyłanie wiadomości i aktualizacja skrzynek odbiorczych.
             %% Dodanie nadawcy z powrotem do listy użytkownyków i zwrócenie zaktualizowanej listy.
