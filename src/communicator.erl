@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, login/2, logout/1, send_message/3, set_password/2, find_user/1, show_active_users/0]).
+-export([stop/0, start_link/0, login/2, logout/1, send_message/3, set_password/2, find_user/1, show_active_users/0, find_password/1]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -43,6 +43,9 @@ find_user(Name) ->
 
 show_active_users() ->
     gen_server:call({?SERVER, server_node()}, show_active_users).
+
+find_password(Name) ->
+    gen_server:call({?SERVER, server_node()},{find_password, Name}).
 
 % ================================================================================
 % CALLBACK
@@ -95,6 +98,13 @@ handle_call({password, Name, Password}, _From, State) ->
     Client = maps:get(Name, State#state.clients),
     UpdatedClients = maps:put(Name, Client#client{password = Password}, State#state.clients),
     {reply, ok, State#state{clients = UpdatedClients}};
+handle_call({find_password, Name}, _From, State) ->
+ 	case maps:find(Name, State#state.clients) of      %szukam po Name (uzytkownik w domysle istnieje) 
+        {ok, {client, _Address, undefined}} ->		%niezdefiniowany logowanie bez hasla, jesli chce przypisujemy pierwsze haslo
+            undefined;
+        {ok, {client, _Address, Password}} ->		%zdefiniowany, logowanie z haslem, jesli chce moze zmienic haslo, zwracam haslo
+            Password                              %zwracam haslo, żeby pozniej porownac w cliencie
+    end;
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
     
