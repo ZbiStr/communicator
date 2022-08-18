@@ -112,23 +112,38 @@ handle_call(_Request, _From, State) ->
 handle_cast({send_message, From, To, Message}, State) ->  
     case To of 
         all ->
+            io:format("~p", [State#state.clients]),
             %% Usuwanie nadawcy z listy użytkowników do których ma trafić wiadomość, 
-            %% wysyłanie wiadomości i aktualizacja skrzynek odbiorczych.
+            %% wysyłanie wiadomości i aktualizacja skrzynek odbiorczych (przypadek zarejestrowanych i nie),
             %% Dodanie nadawcy z powrotem do listy użytkownyków i zwrócenie zaktualizowanej listy.
             {ok, Value} = maps:find(From, State#state.clients),
             ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
-            [gen_statem:cast(Client#client.address, {message, From, Message}) || {_Name, Client} <- ListWithoutSender],
-            UpdatedInboxes = [ {Name, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}} || {Name, Client} <- ListWithoutSender],
+            [gen_statem:cast(Client#client.address, {message, From, Message}) || {_Name, Client} <- ListWithoutSender, 
+            Client#client.address =/= undefined],
+            UpdatedInboxes = [ {Name, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}} || 
+            {Name, Client} <- ListWithoutSender, 
+            Client#client.address == undefined, 
+            Client#client.password =/= undefined],
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
             {noreply, State#state{clients = UpdatedClients}};
         _ ->
             %% wysłanie wiadomości, aktualizacja skrzynki odbiorczej
             %% i zwrócenie zaktualizowanej listy.
             {ok, Client} = maps:find(To, State#state.clients),
-            gen_statem:cast(Client#client.address, {message, From, Message}),
-            UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}, State#state.clients),
-            {noreply, State#state{clients = UpdatedClients}}           
-    end;  
+            case Client#client.address of
+                undefined ->
+                    case Client#client.password of
+                        undefined ->
+                            {noreply, State#state{}};
+                        _ ->
+                            UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}, State#state.clients),
+                            {noreply, State#state{clients = UpdatedClients}}
+                        end;
+                _ ->
+                    gen_statem:cast(Client#client.address, {message, From, Message}),
+                    {noreply, State#state{}}
+                end       
+    end;
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
