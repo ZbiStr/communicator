@@ -57,11 +57,11 @@ logged_out({call, From}, _, _Data) ->
 
 logged_in({call, From}, logout, Data) ->
 	case communicator:logout(Data#data.username) of
-		does_not_exist ->
-			% that would make no sense but it can stay in for now
-			{keep_state_and_data, {reply, From, does_not_exist}};
 		ok ->
-			{next_state, logged_out, Data#data{username = ""}, {reply, From, ok}}
+			{next_state, logged_out, Data#data{username = ""}, {reply, From, ok}};
+		_ ->
+			% that would make no sense but it can stay in for now
+			{keep_state_and_data, {reply, From, does_not_exist}}
 	end;
 logged_in({call, From}, get_name, Data) ->
 	{keep_state_and_data, {reply, From, Data#data.username}};
@@ -193,10 +193,10 @@ login() ->
 logout() ->
 	Reply = gen_statem:call(?MODULE, logout),
 	case Reply of
-		does_not_exist ->
-			io:format("This username doesn't exist~n");
 		ok ->
-			io:format("You have been successfully logged out~n")
+			io:format("You have been successfully logged out~n");
+		_ ->
+			io:format("Something went wrong~n")
 	end.
 
 greet() ->

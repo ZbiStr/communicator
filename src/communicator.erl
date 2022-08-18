@@ -128,7 +128,6 @@ handle_call(_Request, _From, State) ->
 handle_cast({send_message, From, To, Message}, State) ->  
     case To of 
         all ->
-            io:format("~p", [State#state.clients]),
             %% Usuwanie nadawcy z listy użytkowników do których ma trafić wiadomość, 
             %% wysyłanie wiadomości i aktualizacja skrzynek odbiorczych (przypadek zarejestrowanych i nie),
             %% Dodanie nadawcy z powrotem do listy użytkownyków i zwrócenie zaktualizowanej listy.
@@ -140,7 +139,10 @@ handle_cast({send_message, From, To, Message}, State) ->
             {Name, Client} <- ListWithoutSender, 
             Client#client.address == undefined, 
             Client#client.password =/= undefined],
-            UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
+            Rest =  [ {Name, Client#client{}} || 
+            {Name, Client} <- ListWithoutSender, 
+            Client#client.address =/= undefined],
+            UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes ++ Rest)),
             {noreply, State#state{clients = UpdatedClients}};
         _ ->
             %% wysłanie wiadomości, aktualizacja skrzynki odbiorczej
