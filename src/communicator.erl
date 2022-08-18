@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, login/2, logout/1, send_message/3, set_password/2, find_user/1, show_active_users/0, find_password/1, login/3]).
+-export([stop/0, start_link/0, logout/1, send_message/3, set_password/2, find_user/1, show_active_users/0, find_password/1, login/3]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -25,11 +25,8 @@ stop() ->
     gen_server:stop({?SERVER, server_node()}),
     io:format("Communicator server has been closed~n").
 
-login(Name, Address) ->
-    gen_server:call({?SERVER, server_node()}, {login, Name, Address}).
-
 login(Name, Address, Password) ->
-    gen_server:call({?SERVER, server_node()}, {login_password, Name, Address, Password}).
+    gen_server:call({?SERVER, server_node()}, {login, Name, Address, Password}).
 
 logout(Name) ->
     gen_server:call({?SERVER, server_node()}, {logout, Name}).
@@ -63,25 +60,24 @@ init(_Args) ->
     erlang:set_cookie(local, ?COOKIE),
     {ok, #state{}}.
 
-handle_call({login, Name, Address}, _From, State) ->
+handle_call({login, Name, Address, Password}, _From, State) ->
     %% Przeszukiwanie mapy, zwrócenie already_exists w przypadku gdy użytkownik Name 
     %% już w niej występuje, dodanie go w przeciwnym przypadku.
-    case maps:get(Name, State#state.clients, not_found) of   
+    Client = maps:get(Name, State#state.clients, not_found),
+    case Client of   
         not_found ->
             UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}};
-        _Client ->
-            {reply, already_exists, State#state{}}
+        _ ->
+            SetPass = Client#client.password,
+            case Password of
+                SetPass ->
+                    UpdatedClients = maps:update(Name, Client#client{address = Address}, State#state.clients),
+                    {reply, correct, State#state{clients = UpdatedClients}};
+                _ ->
+                    {reply, wrong_password, State#state{}}
+            end
     end;
-handle_call({login_password, Name, _Address, Password}, _From, State) ->
-    {ok, Client} = maps:find(Name, State#state.clients),
-        SetPass = Client#client.password,
-        case Password of
-            SetPass ->
-                {reply, correct, State#state{}};
-            _ ->
-                {reply, wrong_password, State#state{}}
-        end;
 handle_call({logout, Name}, _From, State) ->         
     %% Przeszukiwanie mapy, zwrócenie does_not_exists w przypadku gdy użytkownik Name 
     %% w niej nie występuje, usunięcie go w przeciwnym przypadku.
