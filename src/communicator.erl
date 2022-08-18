@@ -102,14 +102,15 @@ handle_call(_Request, _From, State) ->
 handle_cast({send_message, From, To, Message}, State) ->  
     case To of 
         all ->
+            io:format("~p", [State#state.clients]),
             %% Usuwanie nadawcy z listy użytkowników do których ma trafić wiadomość, 
             %% wysyłanie wiadomości i aktualizacja skrzynek odbiorczych.
             %% Dodanie nadawcy z powrotem do listy użytkownyków i zwrócenie zaktualizowanej listy.
             {ok, Value} = maps:find(From, State#state.clients),
             ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
-            [gen_statem:cast(Client#client.address, {message, From, Message}) || {_Name, Client} <- ListWithoutSender],   
-            UpdatedInboxes = [ {Name, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}} || {Name, Client} <- ListWithoutSender], 
-            UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),  
+            [gen_statem:cast(Client#client.address, {message, From, Message}) || {_Name, Client} <- ListWithoutSender],
+            UpdatedInboxes = [ {Name, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}} || {Name, Client} <- ListWithoutSender],
+            UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
             {noreply, State#state{clients = UpdatedClients}};
         _ ->
             %% wysłanie wiadomości, aktualizacja skrzynki odbiorczej
