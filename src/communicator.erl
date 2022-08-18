@@ -68,14 +68,19 @@ handle_call({login, Name, Address, Password}, _From, State) ->
         not_found ->
             UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}};
-        _ ->
-            SetPass = Client#client.password,
-            case Password of
-                SetPass ->
-                    UpdatedClients = maps:update(Name, Client#client{address = Address}, State#state.clients),
-                    {reply, correct, State#state{clients = UpdatedClients}};
+        _ ->      
+            case Client#client.address of
+                undefined -> 
+                    SetPass = Client#client.password,
+                    case Password of
+                        SetPass ->
+                            UpdatedClients = maps:update(Name, Client#client{address = Address}, State#state.clients),
+                            {reply, ok, State#state{clients = UpdatedClients}};
+                        _ ->
+                            {reply, wrong_password, State#state{}}
+                    end;
                 _ ->
-                    {reply, wrong_password, State#state{}}
+                    {reply, already_exists, State}
             end
     end;
 handle_call({logout, Name}, _From, State) ->         
@@ -109,13 +114,13 @@ handle_call({password, Name, Password}, _From, State) ->
     UpdatedClients = maps:put(Name, Client#client{password = Password}, State#state.clients),
     {reply, ok, State#state{clients = UpdatedClients}};
 handle_call({find_password, Name}, _From, State) ->
-    {ok, Client} = maps:find(Name, State#state.clients), %szukam po Name 
- 	case Client#client.password of     
-        undefined ->		%niezdefiniowany logowanie bez hasla, jesli chce przypisujemy pierwsze haslo
-            undefined;
-        Password ->		%zdefiniowany, logowanie z haslem, jesli chce moze zmienic haslo, zwracam haslo
-            Password                              %zwracam haslo, żeby pozniej porownac w cliencie
-    end;
+Client = maps:get(Name, State#state.clients, not_found), %szukam po Name
+     case Client of
+        not_found ->
+            {reply, undefined, State};
+        _ ->
+            {reply, Client#client.password, State}
+        end;
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
     

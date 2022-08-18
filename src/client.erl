@@ -43,10 +43,12 @@ init([]) ->
 callback_mode() ->
 	state_functions.
 
-logged_out({call, From}, {login, Username}, Data) ->
-	case communicator:login(Username, {?MODULE, Data#data.address}) of
+logged_out({call, From}, {login, Username, Password}, Data) ->
+	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
 		already_exists ->
 			{keep_state_and_data, {reply, From, already_exists}};
+		wrong_password ->
+			{keep_state_and_data, {reply, From, wrong_password}};
 		ok ->
 			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}}
 	end;
@@ -159,16 +161,35 @@ read_commands(Username) ->
 
 login() ->
 	{ok, [Username]} = io:fread("Please input your username: ", "~s"),
-	Reply = gen_statem:call(?MODULE, {login, Username}),
-	case Reply of
-		already_exists ->
-			io:format("Username already logged on~n"),
-			login();
-		ok ->
-			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
-			Username
-	end.
+	Findpass = communicator:find_password(Username),
+	case Findpass of
+		undefined ->
+			Reply = gen_statem:call(?MODULE, {login, Username, undefined}),
+			case Reply of
+				already_exists ->
+					io:format("Username already logged on~n"),
+					login();
+				ok ->
+					io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
+					Username
+			end;
+		_ ->
+			io:format("This user is password protected~n"),
+			{ok, [Inputpass]} = io:fread("Please input your password: ", "~s"),
+			Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
+			case Reply of
+				already_exists ->
+					io:format("Username already logged on~n"),
+					login();
+				wrong_password ->
+					io:format("Wrong password, try again~n"),
+					login();
+				ok ->
+					io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
+					Username
+			end
 
+	end.
 logout() ->
 	Reply = gen_statem:call(?MODULE, logout),
 	case Reply of
