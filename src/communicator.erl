@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, login/2, logout/1, send_message/3, set_password/2, find_user/1, show_active_users/0, find_password/1]).
+-export([stop/0, start_link/0, login/2, logout/1, send_message/3, set_password/2, find_user/1, show_active_users/0, find_password/1, login/3]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -27,6 +27,9 @@ stop() ->
 
 login(Name, Address) ->
     gen_server:call({?SERVER, server_node()}, {login, Name, Address}).
+
+login(Name, Address, Password) ->
+    gen_server:call({?SERVER, server_node()}, {login_password, Name, Address, Password}).
 
 logout(Name) ->
     gen_server:call({?SERVER, server_node()}, {logout, Name}).
@@ -70,14 +73,25 @@ handle_call({login, Name, Address}, _From, State) ->
         _Client ->
             {reply, already_exists, State#state{}}
     end;
+handle_call({login_password, Name, _Address, Password}, _From, State) ->
+    {ok, Client} = maps:find(Name, State#state.clients),
+        SetPass = Client#client.password,
+        case Password of
+            SetPass ->
+                {reply, correct, State#state{}};
+            _ ->
+                {reply, wrong_password, State#state{}}
+        end;
 handle_call({logout, Name}, _From, State) ->         
     %% Przeszukiwanie mapy, zwrócenie does_not_exists w przypadku gdy użytkownik Name 
     %% w niej nie występuje, usunięcie go w przeciwnym przypadku.
-    case maps:get(Name, State#state.clients, not_found) of 
-        not_found ->
-            {reply, does_not_exist, State#state{}};
-        _Client ->
+    {ok, Client} = maps:find(Name, State#state.clients),
+    case Client#client.password of 
+        undefined ->
             UpdatedClients = maps:without([Name], State#state.clients),
+            {reply, ok, State#state{clients = UpdatedClients}};
+        _Password ->
+            UpdatedClients = maps:update(Name, Client#client{address = undefined}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
 handle_call({find_user, Name}, _From, State) ->  
