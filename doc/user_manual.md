@@ -8,96 +8,129 @@ Niniejszy dokument zawiera instrukcję użytkownika dla klienta komunikatora int
 Po uruchomieniu programu pojawi się komunikat:
 
 ```
-////////////////////////////////////////////
-/////    Glad to see you in our app!   /////
-////////////////////////////////////////////
-You can use the following commands:
-login     to log in to the server
-help      to view this again
-exit      to exit the app
+Welcome to communicator erlang
+Please input your username:
 ``` 
 
-Po wybraniu opcji `login` pojawi się komunikat:
-
-```
-Please input your username: 
-```
-
-Po którym należy podać nazwę użytkownika.
-
-W przypadku poprawnego połączenia pojawi się komunikat:
-
-```
-Hello <Username>!
-You have been successfully logged in!
-
-You can use the following commands:
-logout          to log out from the server
-message all     to send message to all users
-help            to view this again
-exit            to exit the app
-```
-
-Jeżeli nazwa będzie zajęta, pojawi się komunikat:
+Po którym należy podać nazwę użytkownika. Serwer sprawdzi, czy użytkownik o tej nazwie nie jest 
+aktualnie zalogowany. Jeśli jest, pojawi się komunikat:
 
 ```
 Username already logged on
 ```
-
-Po wybraniu opcji `message all`  pojawi się komunikat:
-
-```
-Chat with all users started. Type quit to go back to the main menu
->
-```
-Po wpisaniu dowolnego ciągu znaków, wiadomość zostanie przekazana do serwera, który prześle ją do wszystkich zalogowanych użytkowników.
-
-Aby wyjść z czatu, należy wpisać `quit`, pojawi się komunikat:
+Jeśli nie, serwer sprawdzi, czy użytkownik o tej nazwie jest chroniony hasłem. Jeśli nie, nastąpi
+zalogowanie, oraz pojawi się komunikat:
 
 ```
-Do you want to quit? (y/n)
+Connected to server
+For avaiable commands type "help"
 ```
-Po wpisaniu `y` powrócimy do menu zalogowanego użytkownika.
+oraz znak zachęty:
 
-Po wpisaniu `n` powrócimy do czatu.
+```
+@Username>
+```
 
+Jeśli nazwa jest zabezpieczona hasłem, pojawi się komunikat:
+
+```
+This user is password protected, please insert password
+```
+
+Po wpisaniu hasła i naciśnięciu enter, hasło zostanie wysłane do serwera, który sprawdzi jego poprawność.
+Jeśli hasło jest poprawne, nastąpi zalogowanie
+
+W przypadku gdy podano złe hasło, pojawi się komunikat:
+
+```
+Wrong password
+Please input your username:
+```
+
+W przypadku poprawnego połączenia, można wpisać polecenie help. Pojawi się wtedy komunikat:
+
+```
+You can use the following commands:
+logout                  to log out from the server
+send                    to send a message to all users
+send Username   to send a message to user called Username
+users                   to show the list of active users
+set_pass                to set a new password
+help                    to view this again
+exit
+```
+
+Po wybraniu opcji `send`  pojawi się znak zachęty:
+
+```
+Message >
+```
+Po wpisaniu dowolnego ciągu znaków i naciśnięciu `enter` wiadomość zostanie przekazana do serwera, który prześle ją do wszystkich zalogowanych użytkowników. Pojawi się wtedy również komunikat:
+
+```
+You sent a message to all users
+```
+
+Po wybraniu opcji `send <Username>`  pojawi się znak zachęty:
+
+```
+Message >
+```
+
+Po wpisaniu dowolnego ciągu znaków i naciśnięciu `enter` wiadomość zostanie przekazana do serwera, który sprawdzi, czy dany użytkownik <Username> istnieje w systemie. Jeśli tak, to prześle ją do serwera. Pojawi się wtedy komunikat:
+
+```
+You sent a message to <Username>
+```
+  
+W przypadku, gdy użytkownik <Username> istnieje i jest aktualnie zalogowany, serwer prześle do niego wiadomość. Jeśli użytkownik <Username> nie jest zalogowany, ale jest zarejestrowany (zabezpieczony hasłem), wysłana wiadomość zostanie zapisana do jego mailboxa.
+  
+W przypadku, gdy użytkownik nie istnieje w systemie, pojawi się komunikat:
+  
+```
+There is no such user!
+```
+
+Po wybraniu opcji `users`  wyświetlona zostanie lista aktualnie zalogowanych użytkowników:
+
+```
+List of active users: [<Username1>, <Username2>, ...]
+```
+  
+Po wybraniu opcji `set_pass`  pojawi się komunikat:
+
+```
+Please input desired password:
+```
+  
+Po którym należy podać hasło które chcemy ustawić. Po wpisaniu dowolnego ciągu znaków i naciśnięciu `enter` hasło zostanie przekazane do serwera, który przypisze je do aktualnie zalogowanego użytkownika. Od tej pory przy logowaniu wymagane będzie podanie przypisanego hasła. Pojawi się wtedy również komunikat:
+  
+```
+Password has been set
+```
+  
 Po wybraniu opcji `logout` klient rozłączy się z serwerem i powróci do ekranu początkowego, co potwierdzi komunikat:
 
 ```
-You have been successfully logged out!
+You have been successfully logged out
 
-////////////////////////////////////////////
-/////    Glad to see you in our app!   /////
-////////////////////////////////////////////
-You can use the following commands:
-login     to log in to the server
-help      to view this again
-exit      to exit the app
-```
-
-Jeżeli wystąpi błąd to pojawi się komunikat:
-
-```
-This name doesn't exist!
+Welcome to communicator erlang
+Please input your username:
 ```
 
 Po wybraniu opcji `exit` klient wyjdzie z aplikacji, co potwierdzi komunikat:
 
 ```
-See you later!    
+** exception exit: normal   
 ```    
 
 W przypadku wpisania nieznanej komendy pojawi się komunikat:
 
 ```
-Not available command.
+Not a viable command
 ```
 
 ## Polecenia interfejsu użytkownika
-
-### login - utworzenie użytkownika 
-
-Użytkownik wpisuje polecenie `login`, a następnie podaje [Username]. Klient zaloguje użytkownika na serwerze.
 
 ### help - wyświetlenie dostępnych komend wraz z opisem
 Użytkownik wpisuje polecenie `help`. Klient wyświetli wszystkie dostępne komendy wraz z opisem funkcjonalności.
@@ -106,11 +139,25 @@ Użytkownik wpisuje polecenie `help`. Klient wyświetli wszystkie dostępne kome
 
 Użytkownik wpisuje polecenie `logout`. Klient wylogowuje użytkownika z serwera i prezentuje początkowy ekran logowania.
 
-### message all - wysłanie wiadomości do wszystkich zalogowanych użytkowników
+### send - wysłanie wiadomości do wszystkich zalogowanych użytkowników
 
-Użytkownik wpisuje polecenie `message all`. Pojawia się okno czatu, z którego można wysłać wiadomości do wszystkich zalogowanych użytkowników.
+Użytkownik wpisuje polecenie `send`. Pojawia się znak zachęty, po wpisaniu treści wiadomości można ją wysłać do wszystkich zalogowanych i zarejestrowanych użytkowników.
+  
+### send <Username>- wysłanie wiadomości do użytkownika <Username>
+
+Użytkownik wpisuje polecenie `send <Username>`. Pojawia się znak zachęty, po wpisaniu treści wiadomości można ją wysłać do użytkownika <Username> jeśli jest zalogowany lub zarejestrowany.
+  
+### users- wyświetlenie listy zalogowanych użytkowników
+
+Użytkownik wpisuje polecenie `users`. Pojawia się lista zalogowanych użytkowników.
+  
+### set_pass- ustawienie hasła do aktualnie zalogowanego użytkownika
+
+Użytkownik wpisuje polecenie `set_pass`. Użytkownik wpisuje hasło, które zostaje przypisane do użytkownika. Podanie hasła będzie wymagane przy każdym kolejnym zalogowaniu.
 
 ### exit - wyjście z aplikacji
 
 Użytkownik wpisuje polecenie `exit`. Klient wylogowuje użytkownika z serwera i kończy działanie aplikacji.
+
+
 
