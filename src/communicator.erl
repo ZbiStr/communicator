@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, logout/1, send_message/3, set_password/2, find_user/1, show_active_users/0, find_password/1, login/3]).
+-export([show_inbox_user/1, stop/0, start_link/0, logout/1, send_message/3, set_password/2, find_user/1, show_active_users/0, find_password/1, login/3, save_to_file/3, clear_whole_table/0, show_table/0]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -128,21 +128,27 @@ handle_call(_Request, _From, State) ->
 handle_cast({send_message, From, To, Message}, State) ->  
     case To of 
         all ->
-            %% Usuwanie nadawcy z listy użytkowników do których ma trafić wiadomość, 
-            %% wysyłanie wiadomości i aktualizacja skrzynek odbiorczych (przypadek zarejestrowanych i nie),
-            %% Dodanie nadawcy z powrotem do listy użytkownyków i zwrócenie zaktualizowanej listy.
             {ok, Value} = maps:find(From, State#state.clients),
+            %% Wysyłanie wiadomości do wszystkich aktywnych osób poza nadawcą
             ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
             [gen_statem:cast(Client#client.address, {message, From, Message}) || {_Name, Client} <- ListWithoutSender, 
             Client#client.address =/= undefined],
+            %% Aktualizacja inboxów osób zarejestrowanych ale nie zalogowanych
             UpdatedInboxes = [ {Name, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}} || 
-            {Name, Client} <- ListWithoutSender, 
-            Client#client.address == undefined, 
-            Client#client.password =/= undefined],
+            {Name, Client} <- ListWithoutSender,
+            Client#client.address == undefined],
+            %% Połączenie inboxów zaktualizowanych i nie, w celu aktualizacji całej mapy
             Rest =  [ {Name, Client#client{}} || 
-            {Name, Client} <- ListWithoutSender, 
+            {Name, Client} <- ListWithoutSender,
             Client#client.address =/= undefined],
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes ++ Rest)),
+            %% Wyznaczenie listy wszystkich zarejestrowanych użytkowników w celu zapisania otrzymanej wiadomości do pliku
+            RegisteredAndActiveUsers = [User || {User, Client} <- ListWithoutSender, Client#client.password =/= undefined, 
+            Client#client.address =/= undefined],
+            case RegisteredAndActiveUsers of
+                [] -> ok;
+                _ -> save_to_file(RegisteredAndActiveUsers, From, Message)
+            end,
             {noreply, State#state{clients = UpdatedClients}};
         _ ->
             %% wysłanie wiadomości, aktualizacja skrzynki odbiorczej
@@ -150,17 +156,20 @@ handle_cast({send_message, From, To, Message}, State) ->
             {ok, Client} = maps:find(To, State#state.clients),
             case Client#client.address of
                 undefined ->
+                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}, State#state.clients),
+                    %save_to_file(To, From, Message),
+                    {noreply, State#state{clients = UpdatedClients}};
+                _ ->
                     case Client#client.password of
                         undefined ->
+                            gen_statem:cast(Client#client.address, {message, From, Message}),
                             {noreply, State#state{}};
                         _ ->
-                            UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}, State#state.clients),
-                            {noreply, State#state{clients = UpdatedClients}}
-                        end;
-                _ ->
-                    gen_statem:cast(Client#client.address, {message, From, Message}),
-                    {noreply, State#state{}}
-                end       
+                            gen_statem:cast(Client#client.address, {message, From, Message}),
+                            save_to_file(To, From, Message),
+                            {noreply, State#state{}}
+                    end     
+            end  
     end;
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -176,6 +185,67 @@ terminate(_Reason, _State) ->
 % ================================================================================
 % INTERNAL FUNCTIONS
 % ================================================================================
+
+save_to_file(Username, From, Message) ->
+    {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
+    io:format("USERNAME: ~p~n", [Username]),
+    case Username of
+        [_Head, _Tail] ->
+                ListOfUsers = Username,
+                io:format("LISTOFUSERS: ~p~n", [ListOfUsers]),
+                NewUsers = [User || User <- ListOfUsers, dets:member(Table, User) == false],
+                io:format("NEWUSERS: ~p~n", [NewUsers]),
+                [dets:insert(messages, {User, [{From, Message}]}) || User <- NewUsers],
+                OldUsers = ListOfUsers -- NewUsers,
+                io:format("OLDUSERS: ~p~n", [OldUsers]),
+                [save_to_file_when_existed(User, From, Message) || User <- OldUsers];
+         _ ->
+                case dets:member(Table, Username) of
+                    false ->
+                        dets:insert(messages, {Username, [{From, Message}]});
+                    true ->
+                        save_to_file_when_existed(Username, From, Message)
+                end              
+    end,
+    dets:close(Table).
+
+save_to_file_when_existed(Username, From, Message) ->
+    [{Username, Inbox}] = dets:lookup(messages, Username), 
+    UpdatedInbox = Inbox ++ [{From, Message}],
+    %io:format("Username: ~p, updated inbox: ~p~n", [Username, UpdatedInbox]),
+    dets:insert(messages, {Username, UpdatedInbox}).
+    %ets:new(messages_ets, [named_table, set]),         
+    %dets:to_ets(messages, messages_ets),               
+    %LIST = ets:tab2list(messages_ets),
+    %MAP = maps:from_list(LIST),
+    %io:format("~p~n", [MAP]),
+    %{ok, Value} = maps:find(Username, MAP),
+    %io:format("Username: ~p~n", [Username]),
+    %NewInbox = Value ++ [{From, Message}],
+    %[io:format("From ~p: ~p~n", [Fr, Mess]) || {Fr, Mess} <- NewInbox],               
+    %dets:insert(messages, {Username, NewInbox}),
+    %ets:delete(messages_ets).
+
+clear_whole_table() ->
+    {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
+    dets:delete_all_objects(Table),
+    dets:close(Table).
+
+show_table() ->
+    {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
+    ets:new(messages_ets, [named_table, set]),         
+    dets:to_ets(messages, messages_ets),               
+    LIST = ets:tab2list(messages_ets),
+    MAP = maps:from_list(LIST),
+    io:format("WHOLE MAP: ~p~n", [MAP]),
+    ets:delete(messages_ets),
+    dets:close(Table).
+
+show_inbox_user(User) ->
+    {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
+    [{User, Inbox}] = dets:lookup(messages, User), 
+    io:format("User: ~p, Inbox: ~p~n", [User, Inbox]),
+    dets:close(Table).
 
 server_node() ->
     {ok, Host} = inet:gethostname(),
