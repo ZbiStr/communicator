@@ -17,8 +17,14 @@ all_test_() ->
 		fun start_system/0,
 		fun stop_system/1, 
 		[
-			fun login_successful/0,
+			fun login_without_pass/0,
+			fun set_password/0,
+			fun login_with_wrongpass/0,
+			fun login_with_correctpass/0,
 			fun login_already_exists/0,
+			fun find_user/0,
+			fun show_active_users/0,
+			fun send_message/0,
 			fun logout/0,
 			fun help/0,
 			fun unknown_command/0
@@ -34,7 +40,7 @@ start_system() ->
 
 	{ok, Host} = inet:gethostname(),
 	% this is pretty bad
-	SrcPath = "./src",
+	SrcPath = "./_build/default/lib/communicator/ebin",
 	Args = io_lib:format("-setcookie ~s -pa \"~s\"", [?COOKIE, SrcPath]),
 	% separate nodes for client2 and server
 	{ok, NodeClient2} = slave:start(Host, ?CLIENT2, Args),
@@ -53,27 +59,52 @@ stop_system(_) ->
 % TESTCASES
 
 % testing should be done on client1's node (this node)
-login_successful() ->
-	ok = gen_statem:call(client, {login, ?NAME1}).
+login_without_pass() ->
+	ok = gen_statem:call(client, {login, ?NAME1, undefined}).
+
+set_password() ->
+	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
+	{ok, _} = gen_statem:call(client, {set_pass, pass}).
+	
+login_with_wrongpass() ->
+	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
+	{ok, _} = gen_statem:call(client, {set_pass, pass}),
+	ok = gen_statem:call(client, logout),
+	wrong_password = gen_statem:call(client, {login, ?NAME1, badpass}).
+
+login_with_correctpass() ->
+	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
+	{ok, _} = gen_statem:call(client, {set_pass, pass}),
+	ok = gen_statem:call(client, logout),
+	ok = gen_statem:call(client, {login, ?NAME1, pass}).
 
 login_already_exists() ->
-	gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME1}),
-	already_exists = gen_statem:call(client, {login, ?NAME1}).
+	gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME1, undefined}),
+	already_exists = gen_statem:call(client, {login, ?NAME1, undefined}).
+
+find_user() ->
+	gen_statem:call(client, {login, ?NAME1, undefined}),
+	_Data = gen_statem:call(client, get_name).
+
+show_active_users() ->
+	gen_statem:call(client, {login, ?NAME1, undefined}),
+	_Data = gen_statem:call(client, active_users).
+
+send_message() ->
+	gen_statem:call(client, {login, ?NAME1, undefined}),
+	{ok, ?NAME1} = gen_statem:call(client, send).
 
 logout() ->
-	gen_statem:call(client, {login, ?NAME1}),
+	gen_statem:call(client, {login, ?NAME1, undefined}),
 	ok = gen_statem:call(client, logout).
 
 help() ->
-	ok = gen_statem:call(client, help),
-
-	gen_statem:call(client, {login, ?NAME1}),
+	gen_statem:call(client, {login, ?NAME1, undefined}),
 	ok = gen_statem:call(client, help).
 
 unknown_command() ->
 	unknown = gen_statem:call(client, not_a_command),
-
-	gen_statem:call(client, {login, ?NAME1}),
+	gen_statem:call(client, {login, ?NAME1, undefined}),
 	unknown = gen_statem:call(client, not_a_command).
 
 get_node(Name) ->
