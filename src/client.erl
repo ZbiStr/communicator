@@ -75,10 +75,12 @@ logged_in({call, From}, active_users, Data) ->
 logged_in({call, From}, {set_pass, Password}, Data) ->
 	communicator:set_password(Data#data.username, Password),
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
+logged_in({call, From}, history, Data) ->
+	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, _, _Data) ->
 	handle_unknown(From);
-logged_in(cast, {message, From, Message}, _Data) ->
-	io:format("From ~s: ~s~n", [From, Message]),
+logged_in(cast, {message, Time, From, Message}, _Data) ->
+	io:format("~s - ~s: ~s~n", [Time, From, Message]),
     keep_state_and_data.
 
 handle_unknown(From) ->
@@ -120,7 +122,9 @@ read_commands(Username) ->
 					case To of 
 						[] ->
 							Message = string:trim(io:get_line("Message > "), trailing, [$\n]),
-							communicator:send_message(Username, all, Message),
+							{H,S,_MS} = time(),
+							Time = integer_to_list(H) ++ ":" ++ integer_to_list(S),
+							communicator:send_message(all, Time, Username, Message),
 							io:format("You sent a message to all users~n");
 						_ ->
 							case communicator:find_user(To) of
@@ -128,7 +132,9 @@ read_commands(Username) ->
 										io:format("There is no such user!~n");
 								ok ->
 										Message = string:trim(io:get_line("Message > "), trailing, [$\n]),
-										communicator:send_message(Username, To, Message),
+										{H,S,_MS} = time(),
+										Time = integer_to_list(H) ++ ":" ++ integer_to_list(S),
+										communicator:send_message(To, Time, Username, Message),
 										io:format("You sent a message to ~p~n", [To])
 							end
 					end,
@@ -148,6 +154,21 @@ read_commands(Username) ->
 			{ok, [Password]} = io:fread("Please input desired password: ", "~s"),
 			gen_statem:call(?MODULE, {set_pass, Password}),
 			io:format("Password has been set ~n"),
+			read_commands(Username);
+		history ->
+			case communicator:find_password(Username) of
+				undefined -> io:format("You have access to messagess history only from registered account.~n");
+				_ -> 
+					case gen_statem:call(?MODULE, history) of
+					{ok, Username} ->
+						History = communicator:user_history(Username),
+						case History of
+							[] -> io:format("Your history is empty.~n");
+							_ -> [io:format("~s - ~s: ~s~n", [Time, From, Message]) || {Time, From, Message} <- History]
+						end;
+					ok -> ok
+					end
+			end,
 			read_commands(Username);
 		logout ->
 			logout(),
@@ -209,6 +230,7 @@ send			to send a message to all users
 send Username	to send a message to user called Username
 users			to show the list of active users
 set_pass		to set a new password
+history			to see your message history (only for registered users)
 help			to view this again
 exit			to exit the app~n").
 
