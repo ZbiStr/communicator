@@ -77,7 +77,9 @@ logged_in({call, From}, {set_pass, Password}, Data) ->
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, _, _Data) ->
 	handle_unknown(From);
-logged_in(cast, {message, From, Message}, _Data) ->
+logged_in(cast, {message, CodedFrom, CodedMessage}, _Data) ->
+	From = decode_from_7_bits(CodedFrom),
+	Message = decode_from_7_bits(CodedMessage),
 	io:format("From ~s: ~s~n", [From, Message]),
     keep_state_and_data.
 
@@ -105,8 +107,9 @@ terminate(_Reason, _State, Data) ->
 
 
 read_commands(Username) ->
-	Prompt = "@" ++ Username ++ "> ",
-	Input = io:get_line(Prompt),
+	PromptReadCommands = "@" ++ Username ++ "> ",
+	PromptMessage = "Message> ",
+	Input = read(PromptReadCommands),
 	[Command, Opts] =
 		[list_to_atom(string:trim(Token)) || Token <- string:split(Input ++ " ", " ")],
 	case Command of
@@ -119,7 +122,7 @@ read_commands(Username) ->
 					To = atom_to_list(Opts),
 					case To of 
 						[] ->
-							Message = string:trim(io:get_line("Message > "), trailing, [$\n]),
+							Message = read(PromptMessage),
 							communicator:send_message(Username, all, Message),
 							io:format("You sent a message to all users~n");
 						_ ->
@@ -127,7 +130,7 @@ read_commands(Username) ->
 							  	does_not_exist ->
 										io:format("There is no such user!~n");
 								ok ->
-										Message = string:trim(io:get_line("Message > "), trailing, [$\n]),
+										Message = read(PromptMessage),
 										communicator:send_message(Username, To, Message),
 										io:format("You sent a message to ~p~n", [To])
 							end
@@ -145,7 +148,8 @@ read_commands(Username) ->
 			end,
 			read_commands(Username);
 		set_pass ->
-			{ok, [Password]} = io:fread("Please input desired password: ", "~s"),
+			PromptSetPass = "Please input desired password: ",
+			Password = read(PromptSetPass),
 			gen_statem:call(?MODULE, {set_pass, Password}),
 			io:format("Password has been set ~n"),
 			read_commands(Username);
@@ -160,7 +164,8 @@ read_commands(Username) ->
 	end.
 
 login() ->
-	{ok, [Username]} = io:fread("Please input your username: ", "~s"),
+	Prompt = "Please input your username: ",
+	Username = read(Prompt),
 	Findpass = communicator:find_password(Username),
 	case Findpass of
 		undefined ->
@@ -175,7 +180,8 @@ login() ->
 			end;
 		_ ->
 			io:format("This user is password protected~n"),
-			{ok, [Inputpass]} = io:fread("Please input your password: ", "~s"),
+			PromptP = "Please input your password: ",
+			Inputpass = read(PromptP),
 			Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
 			case Reply of
 				already_exists ->
@@ -223,3 +229,34 @@ start_node() ->
 		error:{already_started, _Pid} ->
 			start_node()
 	end.
+
+read(Prompt) ->
+	% 32 to 126
+	Input = string:trim(io:get_line(Prompt), trailing, [$\n]),
+	Check = [32 || _<- Input],
+	Output = [check(Y) || Y <- Input],
+	case Output of
+		Check ->
+			Input;
+		_ ->
+			io:format("~s~n", [Output]),
+			io:format("Wrong character at indicated position~n"),
+			io:format("Try again~n"),
+			read(Prompt)
+		end.
+
+check(Y) ->
+	if
+		Y >= 32 andalso Y =< 126 ->
+			32;
+		true ->
+			94
+	end .
+
+code_to_7_bits(Input) ->
+	Bit = <<  <<(A-32)>> || A <- Input>>,
+	<< <<Code>> || <<_A:1,Code:7>> <= Bit>>.
+
+decode_from_7_bits(Input) ->
+	Bit = << <<0:1,Code:7>> || <<Code>> <= Input>>,
+	[(A+32) || <<A:8>> <= Bit].
