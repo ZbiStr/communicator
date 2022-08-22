@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([show_inbox_user/1, stop/0, start_link/0, logout/1, send_message/4, set_password/2, find_user/1, save_to_file/4, show_active_users/0, find_password/1, login/3, user_history/1, clear_whole_table/0, show_table/0]).
+-export([stop/0, start_link/0, logout/1, send_message/4, set_password/2, find_user/1, save_to_file/4, show_active_users/0, find_password/1, login/3, user_history/1, clear_whole_table/0, show_table/0]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -17,7 +17,7 @@
 % API
 % ================================================================================
 start_link() ->
-    Result = gen_server:start_link({local, ?SERVER}, ?MODULE, [], []), 
+    Result = gen_server:start_link({local, ?SERVER}, ?MODULE, [], []),
     io:format("Communicator server has been started. Created on ~p~n", [server_node()]),
 	Result.
 
@@ -26,28 +26,50 @@ stop() ->
     io:format("Communicator server has been closed~n").
 
 login(Name, Address, Password) ->
-    gen_server:call({?SERVER, server_node()}, {login, Name, Address, Password}).
+    CodedName = code_to_7_bits(Name),
+    case Password of
+        undefined ->
+            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, undefined});
+        _ ->
+            CodedPassword = code_to_7_bits(Password),
+            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, CodedPassword})
+    end.
 
 logout(Name) ->
-    gen_server:call({?SERVER, server_node()}, {logout, Name}).
+    CodedName = code_to_7_bits(Name),
+    gen_server:call({?SERVER, server_node()}, {logout, CodedName}).
 
 send_message(To, Time, From, Message) ->
-    gen_server:cast({?SERVER, server_node()},{send_message, To, Time, From, Message}).
+    CodedFrom = code_to_7_bits(From),
+    CodedMessage = code_to_7_bits(Message),
+    CodedTime = code_to_7_bits(Time),
+    case To of
+        all ->
+            gen_server:cast({?SERVER, server_node()},{send_message, To, CodedTime, CodedFrom, CodedMessage});
+        _ ->
+            CodedTo = code_to_7_bits(To),
+            gen_server:cast({?SERVER, server_node()},{send_message, CodedTo, CodedTime, CodedFrom, CodedMessage})
+    end.
 
 set_password(Name, Password) ->
-    gen_server:call({?SERVER, server_node()}, {password, Name, Password}).
-    
+    CodedName = code_to_7_bits(Name),
+    CodedPassword = code_to_7_bits(Password),
+    gen_server:call({?SERVER, server_node()}, {password, CodedName, CodedPassword}).
+
 find_user(Name) ->
-    gen_server:call({?SERVER, server_node()}, {find_user, Name}).
+    CodedName = code_to_7_bits(Name),
+    gen_server:call({?SERVER, server_node()}, {find_user, CodedName}).
 
 show_active_users() ->
     gen_server:call({?SERVER, server_node()}, show_active_users).
 
 find_password(Name) ->
-    gen_server:call({?SERVER, server_node()},{find_password, Name}).
+    CodedName = code_to_7_bits(Name),
+    gen_server:call({?SERVER, server_node()},{find_password, CodedName}).
 
 user_history(Username) ->
-    gen_server:call({?SERVER, server_node()},{history, Username}).
+    CodedUsername = code_to_7_bits(Username),
+    gen_server:call({?SERVER, server_node()},{history, CodedUsername}).
 
 
 
@@ -64,18 +86,20 @@ init(_Args) ->
     erlang:set_cookie(local, ?COOKIE),
     {ok, #state{}}.
 
-handle_call({login, Name, Address, Password}, _From, State) ->
-    %% Przeszukiwanie mapy, zwrócenie already_exists w przypadku gdy użytkownik Name 
+handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
+    %% Przeszukiwanie mapy, zwrócenie already_exists w przypadku gdy użytkownik Name
     %% już w niej występuje, dodanie go w przeciwnym przypadku.
+    Name = decode_from_7_bits(CodedName),
     Client = maps:get(Name, State#state.clients, not_found),
-    case Client of   
+    case Client of
         not_found ->
             UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}};
-        _ ->      
+        _ ->
             case Client#client.address of
-                undefined -> 
+                undefined ->
                     SetPass = Client#client.password,
+                    Password = decode_from_7_bits(CodedPassword),
                     case Password of
                         SetPass ->
                             UpdatedClients = maps:update(Name, Client#client{address = Address}, State#state.clients),
@@ -87,11 +111,12 @@ handle_call({login, Name, Address, Password}, _From, State) ->
                     {reply, already_exists, State}
             end
     end;
-handle_call({logout, Name}, _From, State) ->         
-    %% Przeszukiwanie mapy, zwrócenie does_not_exists w przypadku gdy użytkownik Name 
+handle_call({logout, CodedName}, _From, State) ->
+    %% Przeszukiwanie mapy, zwrócenie does_not_exists w przypadku gdy użytkownik Name
     %% w niej nie występuje, usunięcie go w przeciwnym przypadku.
+    Name = decode_from_7_bits(CodedName),
     {ok, Client} = maps:find(Name, State#state.clients),
-    case Client#client.password of 
+    case Client#client.password of
         undefined ->
             UpdatedClients = maps:without([Name], State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}};
@@ -99,35 +124,44 @@ handle_call({logout, Name}, _From, State) ->
             UpdatedClients = maps:update(Name, Client#client{address = undefined}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
-handle_call({find_user, Name}, _From, State) ->  
-    case maps:get(Name, State#state.clients, not_found) of 
+handle_call({find_user, CodedName}, _From, State) ->
+    Name = decode_from_7_bits(CodedName),
+    case maps:get(Name, State#state.clients, not_found) of
         not_found ->
             {reply, does_not_exist, State#state{}};
         _Client ->
             {reply, ok, State#state{}}
     end;
-handle_call(show_active_users, _From, State) ->  
-    ListOfUsers = maps:to_list(State#state.clients), 
+handle_call(show_active_users, _From, State) ->
+    ListOfUsers = maps:to_list(State#state.clients),
     ActiveUsers = [ Name || {Name, Client} <- ListOfUsers, Client#client.address =/= undefined ],
     {reply, ActiveUsers, State#state{}};
-handle_call({password, Name, Password}, _From, State) ->        
+handle_call(stop, _From, State) ->
+    net_kernel:stop(),
+    {stop, normal, stopped, State};
+handle_call({password, CodedName, CodedPassword}, _From, State) ->
+    Name = decode_from_7_bits(CodedName),
+    Password = decode_from_7_bits(CodedPassword),
     Client = maps:get(Name, State#state.clients),
     UpdatedClients = maps:put(Name, Client#client{password = Password}, State#state.clients),
     {reply, ok, State#state{clients = UpdatedClients}};
-handle_call({find_password, Name}, _From, State) ->
-Client = maps:get(Name, State#state.clients, not_found), %szukam po Name
-     case Client of
+handle_call({find_password, CodedName}, _From, State) ->
+    Name = decode_from_7_bits(CodedName),
+    Client = maps:get(Name, State#state.clients, not_found), %szukam po Name
+    case Client of
         not_found ->
             {reply, undefined, State};
         _ ->
             {reply, Client#client.password, State}
         end;
-handle_call({history, Username}, _From, State) ->
+handle_call({history, CodedUsername}, _From, State) ->
+    Username = decode_from_7_bits(CodedUsername),
     {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
     case dets:lookup(messages, Username) of
         [{Username, History}] ->
+            CodedHistory = [ {code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)} || {Time, From, Message} <- History ],
             dets:close(Table),
-            {reply, History, State#state{}};
+            {reply, CodedHistory, State#state{}};
         [] -> 
             dets:close(Table),
             {reply, [], State#state{}}
@@ -138,15 +172,17 @@ handle_call(stop, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
     
-
-handle_cast({send_message, To, Time, From, Message}, State) ->  
-    case To of 
+handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage}, State) ->
+    From = decode_from_7_bits(CodedFrom),
+    Message = decode_from_7_bits(CodedMessage),
+    Time = decode_from_7_bits(CodedTime),
+    case CodedTo of
         all ->
             {ok, Value} = maps:find(From, State#state.clients),
             %% Wysyłanie wiadomości do wszystkich aktywnych osób poza nadawcą
             ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
-            [gen_statem:cast(Client#client.address, {message, Time, From, Message}) || {_Name, Client} <- ListWithoutSender, 
-            Client#client.address =/= undefined],
+            [gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}) 
+            || {_Name, Client} <- ListWithoutSender, Client#client.address =/= undefined],
             %% Aktualizacja inboxów
             UpdatedInboxes = [ update(Name, Client, From, Message) || {Name, Client} <- ListWithoutSender],
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
@@ -158,17 +194,18 @@ handle_cast({send_message, To, Time, From, Message}, State) ->
             end,
             {noreply, State#state{clients = UpdatedClients}};
         _ ->
+            To = decode_from_7_bits(CodedTo),
             {ok, Client} = maps:find(To, State#state.clients),
             case status(Client) of
                 registered_off -> %% aktualizacja skrzynki odbiorczej zarejestrowanych & wylogowanych
                     UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message}]}, State#state.clients),
                     {noreply, State#state{clients = UpdatedClients}};
                 registered_on -> %% wysłanie wiadomości prywatnych & zapisanie do pliku
-                    gen_statem:cast(Client#client.address, {message, Time, From, Message}),
-                    save_to_file(To, Time, From, Message),
+                    gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
+                    save_to_file([To], Time, From, Message),
                     {noreply, State#state{}};
                 on -> %% wysłanie wiadomości prywatnych
-                    gen_statem:cast(Client#client.address, {message, Time, From, Message}),
+                    gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
                     {noreply, State#state{}}    
             end  
     end;
@@ -202,14 +239,7 @@ save_to_file(Username, Time, From, Message) ->
                 NewUsers = [User || User <- ListOfUsers, dets:member(Table, User) == false],
                 [dets:insert(messages, {User, [{Time, From, Message}]}) || User <- NewUsers],
                 OldUsers = ListOfUsers -- NewUsers,
-                [save_to_file_when_existed(User, Time, From, Message) || User <- OldUsers];
-         _ ->
-                case dets:member(Table, Username) of
-                    false ->
-                        dets:insert(messages, {Username, [{Time, From, Message}]});
-                    true ->
-                        save_to_file_when_existed(Username, Time, From, Message)
-                end              
+                [save_to_file_when_existed(User, Time, From, Message) || User <- OldUsers]        
     end,
     dets:close(Table).
 
@@ -225,18 +255,12 @@ clear_whole_table() ->
 
 show_table() ->
     {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
-    ets:new(messages_ets, [named_table, set]),         
-    dets:to_ets(messages, messages_ets),               
+    ets:new(messages_ets, [named_table, set]),
+    dets:to_ets(messages, messages_ets),
     LIST = ets:tab2list(messages_ets),
     MAP = maps:from_list(LIST),
     io:format("~p~n", [MAP]),
     ets:delete(messages_ets),
-    dets:close(Table).
-
-show_inbox_user(User) ->
-    {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
-    [{User, Inbox}] = dets:lookup(messages, User), 
-    io:format("User: ~p, Inbox: ~p~n", [User, Inbox]),
     dets:close(Table).
 
 update(Name, Client, From, Message) ->
@@ -262,4 +286,10 @@ server_node() ->
     {ok, Host} = inet:gethostname(),
     list_to_atom(atom_to_list(?NODE_NAME) ++ "@" ++ Host).
 
+code_to_7_bits(Input) ->
+	Bit = <<  <<(A-32)>> || A <- Input>>,
+	<< <<Code>> || <<_A:1,Code:7>> <= Bit>>.
 
+decode_from_7_bits(Input) ->
+	Bit = << <<0:1,Code:7>> || <<Code>> <= Input>>,
+	[(A+32) || <<A:8>> <= Bit].
