@@ -18,3 +18,6 @@ _build
 rebar3.crashdump
 *~
 *.lock
+*copy.erl
+messages
+log_file.txt

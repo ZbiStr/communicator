@@ -10,8 +10,15 @@
 -define(NODE_NAME, erlangpol).
 -define(COOKIE, ciasteczko).
 
--record(state, {clients = #{}}).
--record(client, {address = undefined, inbox=[], password = undefined}).
+-record(state, {
+    server_name = undefined,
+    log_file = undefined,
+    max_clients = undefined,
+    clients = #{}}).
+-record(client, {
+    address = undefined,
+    inbox=[],
+    password = undefined}).
 
 % ================================================================================
 % API
@@ -84,7 +91,8 @@ init(_Args) ->
             ok
     end,
     erlang:set_cookie(local, ?COOKIE),
-    {ok, #state{}}.
+    {ok, {ServerName,MaxNumber,LogFilePath}} = load_configuration("server_config.txt"),
+    {ok, #state{server_name = ServerName, max_clients = list_to_integer(MaxNumber), log_file = LogFilePath}}.
 
 handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
     %% Przeszukiwanie mapy, zwrócenie already_exists w przypadku gdy użytkownik Name
@@ -136,9 +144,6 @@ handle_call(show_active_users, _From, State) ->
     ListOfUsers = maps:to_list(State#state.clients),
     ActiveUsers = [ Name || {Name, Client} <- ListOfUsers, Client#client.address =/= undefined ],
     {reply, ActiveUsers, State#state{}};
-handle_call(stop, _From, State) ->
-    net_kernel:stop(),
-    {stop, normal, stopped, State};
 handle_call({password, CodedName, CodedPassword}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
     Password = decode_from_7_bits(CodedPassword),
@@ -293,3 +298,20 @@ code_to_7_bits(Input) ->
 decode_from_7_bits(Input) ->
 	Bit = << <<0:1,Code:7>> || <<Code>> <= Input>>,
 	[(A+32) || <<A:8>> <= Bit].
+
+load_configuration(ConfigPath) ->
+    try file:open(ConfigPath, [read]) of
+        {ok, IoDevice} ->
+            PromptServerName = "Server name: ",
+            PromptMaxClients = "Max number of clients: ",
+            PromptLogFilePath = "Log file path: ",
+            _Trash = io:get_line(IoDevice,""),
+            ServerName = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptServerName,
+            MaxNumber = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptMaxClients,
+            LogFilePath = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptLogFilePath,
+            {ok, {ServerName,MaxNumber,LogFilePath}}
+    catch
+        error:Reason ->
+            io:format("Loading config file failed with reason: ~p",[Reason]),
+            {error, Reason}
+    end.
