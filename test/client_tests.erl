@@ -9,8 +9,12 @@
 -define(COOKIE, ciasteczko).
 
 -define(NAME1, "name1").
+-define(NAME2, "name2").
+-define(NAME3, "name3").
 -define(PASSWORD, "password").
-
+-define(BADPASSWORD, "badpassword").
+-define(TIME, "12").
+-define(MESSAGE, "message").
 
 all_test_() ->
 	{
@@ -25,10 +29,12 @@ all_test_() ->
 			fun login_already_exists/0,
 			fun find_user/0,
 			fun show_active_users/0,
-			fun send_message/0,
+			fun send/0,
 			fun logout/0,
 			fun help/0,
-			fun unknown_command/0
+			fun unknown_command/0,
+			fun history/0,
+			fun send_message/0
 		]
 	}.
   
@@ -71,7 +77,7 @@ login_with_wrongpass() ->
 	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
 	{ok, _} = gen_statem:call(client, {set_pass, ?PASSWORD}),
 	ok = gen_statem:call(client, logout),
-	wrong_password = gen_statem:call(client, {login, ?NAME1, "badpass"}).
+	wrong_password = gen_statem:call(client, {login, ?NAME1, ?BADPASSWORD}).
 
 login_with_correctpass() ->
 	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
@@ -91,9 +97,12 @@ show_active_users() ->
 	gen_statem:call(client, {login, ?NAME1, undefined}),
 	_Data = gen_statem:call(client, active_users).
 
-send_message() ->
+send() ->
 	gen_statem:call(client, {login, ?NAME1, undefined}),
-	{ok, ?NAME1} = gen_statem:call(client, send).
+	gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME2, ?PASSWORD}),
+	gen_statem:call(client, {send, [], ?MESSAGE}),
+	gen_statem:call(client, {send, ?NAME2, ?MESSAGE}),
+	gen_statem:call(client, {send, ?NAME3, ?MESSAGE}).
 
 logout() ->
 	gen_statem:call(client, {login, ?NAME1, undefined}),
@@ -108,6 +117,23 @@ unknown_command() ->
 	gen_statem:call(client, {login, ?NAME1, undefined}),
 	unknown = gen_statem:call(client, not_a_command).
 
+history() ->
+	send(),
+	CodedName = code_to_7_bits(?NAME2),
+	gen_statem:call(client, {history, CodedName}).
+
+send_message() ->
+	gen_statem:call(client, {login, ?NAME1, ?PASSWORD}),
+	gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME2, ?PASSWORD}),
+	CodedTime = code_to_7_bits(?TIME),
+	CodedFrom = code_to_7_bits(?NAME2),
+	CodedMessage =code_to_7_bits(?MESSAGE),
+	ok = gen_statem:cast(client, {message, CodedTime, CodedFrom, CodedMessage}).
+
 get_node(Name) ->
 	{ok, Host} = inet:gethostname(),
 	list_to_atom(atom_to_list(Name) ++ "@" ++ Host).
+
+code_to_7_bits(Input) ->
+	Bit = <<  <<(A-32)>> || A <- Input>>,
+	<< <<Code>> || <<_A:1,Code:7>> <= Bit>>.
