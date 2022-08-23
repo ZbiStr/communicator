@@ -100,9 +100,9 @@ show_active_users() ->
 send() ->
 	gen_statem:call(client, {login, ?NAME1, undefined}),
 	gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME2, ?PASSWORD}),
-	gen_statem:call(client, {send, [], ?MESSAGE}),
-	gen_statem:call(client, {send, ?NAME2, ?MESSAGE}),
-	gen_statem:call(client, {send, ?NAME3, ?MESSAGE}).
+	all = gen_statem:call(client, {send, [], ?MESSAGE}),
+	private = gen_statem:call(client, {send, ?NAME2, ?MESSAGE}),
+	does_not_exist = gen_statem:call(client, {send, ?NAME3, ?MESSAGE}).
 
 logout() ->
 	gen_statem:call(client, {login, ?NAME1, undefined}),

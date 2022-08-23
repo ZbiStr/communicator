@@ -9,7 +9,8 @@
 -define(BADPASSWORD, "badpassword").
 -define(TIME, "12").
 -define(MESSAGE, "message").
--define(ADDRESS, address).
+-define(ADDRESS1, address1).
+-define(ADDRESS2, address2).
 
 
 all_test_() ->
@@ -19,13 +20,16 @@ all_test_() ->
         fun stop_system/1, 
         [
             fun login_without_pass/0,
+            fun login_already_exists/0,
             fun set_password/0,
-            fun login_with_password/0,
+            fun login_with_correctpass/0,
+            fun login_with_wrongpass/0,
             fun send_message/0,
             fun find_user/0,
             fun show_active_users/0,
             fun find_password/0,
             fun user_history/0
+
         ]
     }.
 
@@ -41,29 +45,43 @@ stop_system(_) ->
 
 login_without_pass() ->
     CodedName = code_to_7_bits(?NAME1),
-    ok = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, undefined, undefined}),
+    ok = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, ?ADDRESS1, undefined}),
     %already_exists = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, undefined, undefined}),
     ok = gen_server:call({communicator, get_node(?SERVER)}, {logout, CodedName}).
 
+login_already_exists() ->
+    CodedName = code_to_7_bits(?NAME1),
+	gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, ?ADDRESS1, undefined}),
+	already_exists = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, ?ADDRESS2, undefined}).
+
 set_password() -> 
     CodedName = code_to_7_bits(?NAME1),
-    ok = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, undefined, undefined}),
+    ok = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, ?ADDRESS1, undefined}),
     CodedPass = code_to_7_bits(?PASSWORD),
     ok = gen_server:call({communicator, get_node(?SERVER)}, {password, CodedName, CodedPass}).
 
-login_with_password() ->
+login_with_correctpass() ->
     CodedName = code_to_7_bits(?NAME1),
-    ok = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, undefined, undefined}),
+    ok = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, ?ADDRESS1, undefined}),
     CodedPass = code_to_7_bits(?PASSWORD),
     ok = gen_server:call({communicator, get_node(?SERVER)}, {password, CodedName, CodedPass}),
     ok = gen_server:call({communicator, get_node(?SERVER)}, {logout, CodedName}),
-    ok = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, undefined, CodedPass}).
+    ok = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, ?ADDRESS2, CodedPass}).
+
+login_with_wrongpass() ->
+    CodedName = code_to_7_bits(?NAME1),
+    ok = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, ?ADDRESS1, undefined}),
+    CodedPass = code_to_7_bits(?PASSWORD),
+    ok = gen_server:call({communicator, get_node(?SERVER)}, {password, CodedName, CodedPass}),
+    ok = gen_server:call({communicator, get_node(?SERVER)}, {logout, CodedName}),
+    CodedWrongPass = code_to_7_bits(?BADPASSWORD),
+    wrong_password = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, ?ADDRESS2, CodedWrongPass}).
 
 send_message() ->
     CodedFrom = code_to_7_bits(?NAME1),
-    gen_server:call({communicator, get_node(?SERVER)}, {login, CodedFrom, undefined, undefined}),
+    gen_server:call({communicator, get_node(?SERVER)}, {login, CodedFrom, ?ADDRESS1, undefined}),
     CodedTo = code_to_7_bits(?NAME2),
-    gen_server:call({communicator, get_node(?SERVER)}, {login, CodedTo, undefined, undefined}),
+    gen_server:call({communicator, get_node(?SERVER)}, {login, CodedTo, ?ADDRESS2, undefined}),
     CodedTime = code_to_7_bits(?TIME),
 	CodedMessage =code_to_7_bits(?MESSAGE),
     gen_server:cast({communicator, get_node(?SERVER)},{send_message, all, CodedTime, CodedFrom, CodedMessage}),
@@ -74,16 +92,23 @@ show_active_users() ->
 
 find_password() ->
     CodedName = code_to_7_bits(?NAME1),
-    gen_server:call({communicator, get_node(?SERVER)},{find_password, CodedName}).
+    ok = gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, ?ADDRESS1, undefined}),
+    undefined = gen_server:call({communicator, get_node(?SERVER)},{find_password, CodedName}),
+    CodedPass = code_to_7_bits(?PASSWORD),
+    ok = gen_server:call({communicator, get_node(?SERVER)}, {password, CodedName, CodedPass}),
+    ?PASSWORD = gen_server:call({communicator, get_node(?SERVER)},{find_password, CodedName}).
+
 
 find_user() ->
     CodedName = code_to_7_bits(?NAME1),
-    gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, undefined, undefined}),
-    gen_server:call({communicator, get_node(?SERVER)}, {find_user, CodedName}).
+    gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, ?ADDRESS1, undefined}),
+    ok = gen_server:call({communicator, get_node(?SERVER)}, {find_user, CodedName}),
+    CodedName2 = code_to_7_bits(?NAME2),
+    does_not_exist = gen_server:call({communicator, get_node(?SERVER)}, {find_user, CodedName2}).
 
 user_history() ->
     CodedName = code_to_7_bits(?NAME1),
-    gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, undefined, undefined}),
+    gen_server:call({communicator, get_node(?SERVER)}, {login, CodedName, ?ADDRESS1, undefined}),
     gen_server:call({communicator, get_node(?SERVER)},{history, CodedName}).
 
 get_node(Name) ->
