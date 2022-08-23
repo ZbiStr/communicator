@@ -56,6 +56,7 @@ send                    to send a message to all users
 send Username   to send a message to user called Username
 users                   to show the list of active users
 set_pass                to set a new password
+history                 to see your message history (only for registered users)
 help                    to view this again
 exit
 ```
@@ -108,7 +109,25 @@ Po którym należy podać hasło które chcemy ustawić. Po wpisaniu dowolnego c
 ```
 Password has been set
 ```
-  
+
+Po wybraniu opcji `history`, w przypadku użytkownika niezarejestrowanego, pojawi się komunikat:
+
+```
+You have access to messagess history only from registered account.
+```
+
+w przypadku użytkownika zarejestrowanego, wyświetlona zostanie historia wiadomości. Każda wiadomość wyświetli się w formacie:
+
+```
+Year/Month/Day Time - From: Message
+```
+
+lub, jeśli skrzynka odbiorcza jest pusta, pojawi się komunikat:
+
+```
+Your history is empty.
+```
+
 Po wybraniu opcji `logout` klient rozłączy się z serwerem i powróci do ekranu początkowego, co potwierdzi komunikat:
 
 ```

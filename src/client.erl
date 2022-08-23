@@ -68,8 +68,24 @@ logged_in({call, From}, get_name, Data) ->
 logged_in({call, From}, help, _Data) ->
 	help(),
 	{keep_state_and_data, {reply, From, ok}};
-logged_in({call, From}, send, Data) ->
-	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
+logged_in({call, From}, {send, To, Message}, Data) ->
+	{{Y,M,D},{H,S,_MS}} = calendar:local_time(),
+	Time =  integer_to_list(Y) ++ "/" ++ "0" ++ integer_to_list(M) ++ "/" ++ 
+			integer_to_list(D) ++ " " ++ integer_to_list(H) ++ ":" ++ 
+			integer_to_list(S),
+	case To of 
+		[] ->
+			communicator:send_message(all, Time, Data#data.username, Message),
+			{keep_state_and_data, {reply, From, all}};
+		_ ->
+			case communicator:find_user(To) of
+				does_not_exist ->
+					{keep_state_and_data, {reply, From, does_not_exist}};
+				ok ->
+					communicator:send_message(To, Time, Data#data.username, Message),
+					{keep_state_and_data, {reply, From, private}}
+			end
+	end;
 logged_in({call, From}, active_users, Data) ->
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
@@ -120,36 +136,18 @@ read_commands(Username) ->
 			gen_statem:stop(?MODULE),
 			exit(normal);
 		send ->
-			case gen_statem:call(?MODULE, send) of
-				{ok, Username} ->
-					To = atom_to_list(Opts),
-					case To of 
-						[] ->
-							Message = read(PromptMessage),
-							{{Y,M,D},{H,S,_MS}} = calendar:local_time(),
-							Time = integer_to_list(Y) ++ "/" ++ integer_to_list(M) ++ "/" ++ 
-								   integer_to_list(D) ++ " " ++ integer_to_list(H) ++ ":" ++ 
-								   integer_to_list(S),
-							communicator:send_message(all, Time, Username, Message),
-							io:format("You sent a message to all users~n");
-						_ ->
-							case communicator:find_user(To) of
-							  	does_not_exist ->
-										io:format("There is no such user!~n");
-								ok ->
-										Message = read(PromptMessage),
-										{{Y,M,D},{H,S,_MS}} = calendar:local_time(),
-										Time = integer_to_list(Y) ++ "/" ++ integer_to_list(M) ++ "/" ++ 
-											   integer_to_list(D) ++ " " ++ integer_to_list(H) ++ ":" ++ 
-											   integer_to_list(S),
-										communicator:send_message(To, Time, Username, Message),
-										io:format("You sent a message to ~p~n", [To])
-							end
-					end,
-					read_commands(Username);
-				_ ->
-					ok
-			end;
+			To = atom_to_list(Opts),
+			Message = read(PromptMessage),
+			Status = gen_statem:call(?MODULE, {send, To, Message}),
+			case Status of 
+				all ->
+						io:format("You sent a message to all users~n");
+				does_not_exist ->
+						io:format("There is no such user!~n");
+				private ->
+						io:format("You sent a message to ~p~n", [To])
+			end,
+			read_commands(Username);
 		users ->
 			case gen_statem:call(?MODULE, active_users) of
 				{ok, _Username} ->

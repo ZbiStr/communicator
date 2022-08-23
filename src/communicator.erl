@@ -186,7 +186,7 @@ handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage}, State) 
             %% Aktualizacja inboxów
             UpdatedInboxes = [ update(Name, Client, From, Message) || {Name, Client} <- ListWithoutSender],
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
-            %% Wyznaczenie listy wszystkich zarejestrowanych użytkowników w celu zapisania otrzymanej wiadomości do pliku
+            %% Wyznaczenie listy wszystkich zarejestrowanych & zalogowanych użytkowników w celu zapisania otrzymanej wiadomości do pliku
             RegisteredAndActiveUsers = [User || {User, Client} <- ListWithoutSender, status(Client) == registered_on],
             case RegisteredAndActiveUsers of
                 [] -> ok;
@@ -200,11 +200,11 @@ handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage}, State) 
                 registered_off -> %% aktualizacja skrzynki odbiorczej zarejestrowanych & wylogowanych
                     UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message}]}, State#state.clients),
                     {noreply, State#state{clients = UpdatedClients}};
-                registered_on -> %% wysłanie wiadomości prywatnych & zapisanie do pliku
+                registered_on -> %% wysłanie wiadomości prywatnych & zapisanie do pliku dla zarejestrowanych & zalogowanych
                     gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
                     save_to_file([To], Time, From, Message),
                     {noreply, State#state{}};
-                on -> %% wysłanie wiadomości prywatnych
+                on -> %% wysłanie wiadomości prywatnych niezarejestrowanych & zalogowanych
                     gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
                     {noreply, State#state{}}    
             end  

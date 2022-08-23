@@ -8,7 +8,8 @@
 
 -define(COOKIE, ciasteczko).
 
--define(NAME1, name1).
+-define(NAME1, "name1").
+-define(PASSWORD, "password").
 
 
 all_test_() ->
@@ -64,19 +65,19 @@ login_without_pass() ->
 
 set_password() ->
 	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
-	{ok, _} = gen_statem:call(client, {set_pass, pass}).
+	{ok, _} = gen_statem:call(client, {set_pass, ?PASSWORD}).
 	
 login_with_wrongpass() ->
 	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
-	{ok, _} = gen_statem:call(client, {set_pass, pass}),
+	{ok, _} = gen_statem:call(client, {set_pass, ?PASSWORD}),
 	ok = gen_statem:call(client, logout),
-	wrong_password = gen_statem:call(client, {login, ?NAME1, badpass}).
+	wrong_password = gen_statem:call(client, {login, ?NAME1, "badpass"}).
 
 login_with_correctpass() ->
 	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
-	{ok, _} = gen_statem:call(client, {set_pass, pass}),
+	{ok, _} = gen_statem:call(client, {set_pass, ?PASSWORD}),
 	ok = gen_statem:call(client, logout),
-	ok = gen_statem:call(client, {login, ?NAME1, pass}).
+	ok = gen_statem:call(client, {login, ?NAME1, ?PASSWORD}).
 
 login_already_exists() ->
 	gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME1, undefined}),
