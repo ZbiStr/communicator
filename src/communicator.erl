@@ -309,6 +309,7 @@ load_configuration(ConfigPath) ->
             ServerName = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptServerName,
             MaxNumber = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptMaxClients,
             LogFilePath = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptLogFilePath,
+            file:close(ConfigPath),
             {ok, {ServerName,MaxNumber,LogFilePath}}
     catch
         error:Reason ->
