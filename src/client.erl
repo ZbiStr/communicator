@@ -72,7 +72,7 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 	{{Y,M,D},{H,Min,S}} = calendar:local_time(),
 	Year = integer_to_list(Y),
     TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
-    [Month,Day,Hour,Minute,Second] = [lists:sublist(Y, lists:flatlength(X) - 1, 2) || X <- TempTime],
+    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
     Time =  Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second,
 	case To of 
 		[] ->
