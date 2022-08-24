@@ -47,7 +47,7 @@ Wrong password
 Please input your username:
 ```
 
-W przypadku poprawnego połączenia, można wpisać polecenie help. Pojawi się wtedy komunikat:
+W przypadku poprawnego połączenia, można wpisać polecenie `help`. Pojawi się wtedy komunikat:
 
 ```
 You can use the following commands:
@@ -154,10 +154,6 @@ Not a viable command
 ### help - wyświetlenie dostępnych komend wraz z opisem
 Użytkownik wpisuje polecenie `help`. Klient wyświetli wszystkie dostępne komendy wraz z opisem funkcjonalności.
 
-### logout - wylogowanie użytkownika
-
-Użytkownik wpisuje polecenie `logout`. Klient wylogowuje użytkownika z serwera i prezentuje początkowy ekran logowania.
-
 ### send - wysłanie wiadomości do wszystkich zalogowanych użytkowników
 
 Użytkownik wpisuje polecenie `send`. Pojawia się znak zachęty, po wpisaniu treści wiadomości można ją wysłać do wszystkich zalogowanych i zarejestrowanych użytkowników.
@@ -172,7 +168,16 @@ Użytkownik wpisuje polecenie `users`. Pojawia się lista zalogowanych użytkown
   
 ### set_pass- ustawienie hasła do aktualnie zalogowanego użytkownika
 
-Użytkownik wpisuje polecenie `set_pass`. Użytkownik wpisuje hasło, które zostaje przypisane do użytkownika. Podanie hasła będzie wymagane przy każdym kolejnym zalogowaniu.
+Użytkownik wpisuje polecenie `set_pass`. Użytkownik wpisuje hasło, które zostaje do niego przypisane. Podanie hasła będzie wymagane przy każdym kolejnym zalogowaniu.
+
+### history - wyświetlenie historii wiadomości
+
+Użytkownik wpisuje polecenie `history`. W przypadku użytkownika z przypisanym hasłem wyświetlona zostaje historia wiadomości. W przypadku 
+użytkownika bez przypisanego hasła wyświetlony zostanje odpowiedni komunikat.
+
+### logout - wylogowanie użytkownika
+
+Użytkownik wpisuje polecenie `logout`. Klient wylogowuje użytkownika z serwera i prezentuje początkowy ekran logowania.
 
 ### exit - wyjście z aplikacji
 
