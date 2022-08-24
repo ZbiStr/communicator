@@ -170,10 +170,7 @@ read_commands(Username) ->
 					case History of
 						[] -> io:format("Your history is empty.~n");
 						_ -> 
-							[io:format("~s - ~s: ~s~n", [
-								decode_from_7_bits(Time), 
-								decode_from_7_bits(From), 
-								decode_from_7_bits(Message)])
+							[io:format("~s - ~s: ~s~n", [Time, From, Message])
 							|| {Time, From, Message} <- History]
 					end
 			end,

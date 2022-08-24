@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, logout/1, send_message/4, set_password/2, find_user/1, show_active_users/0, find_password/1, login/3, user_history/1, clear_whole_table/0, show_table/0]).
+-export([stop/0, start_link/0, logout/1, send_message/4, set_password/2, find_user/1, show_active_users/0, find_password/1, login/3, user_history/1, clear_whole_table/0]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -76,8 +76,11 @@ find_password(Name) ->
 
 user_history(Username) ->
     CodedUsername = code_to_7_bits(Username),
-    gen_server:call({?SERVER, server_node()},{history, CodedUsername}).
-
+    History = gen_server:call({?SERVER, server_node()},{history, CodedUsername}),
+    [{decode_from_7_bits(Time),
+    decode_from_7_bits(From), 
+    decode_from_7_bits(Message)}
+    || {Time, From, Message} <- History].
 
 
 % ================================================================================
@@ -256,16 +259,6 @@ save_to_file_when_existed(Username, Time, From, Message) ->
 clear_whole_table() ->
     {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
     dets:delete_all_objects(Table),
-    dets:close(Table).
-
-show_table() ->
-    {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
-    ets:new(messages_ets, [named_table, set]),
-    dets:to_ets(messages, messages_ets),
-    LIST = ets:tab2list(messages_ets),
-    MAP = maps:from_list(LIST),
-    io:format("~p~n", [MAP]),
-    ets:delete(messages_ets),
     dets:close(Table).
 
 update(Name, Client, From, Message) ->
