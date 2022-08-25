@@ -188,39 +188,30 @@ read_commands(Username) ->
 login() ->
 	Prompt = "Please input your username: ",
 	Username = read(Prompt),
+	Inputpass = get_pass(Username),
+	Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
+	case Reply of
+		max_reached ->
+			io:format("Maximum number of logged in clients reached~n"),
+			login();
+		already_exists ->
+			io:format("Username already logged on~n"),
+			login();
+		wrong_password ->
+			io:format("Wrong password, try again~n"),
+			login();
+		ok ->
+			Username
+	end.
+get_pass(Username) ->
 	Findpass = communicator:find_password(Username),
 	case Findpass of
 		undefined ->
-			Reply = gen_statem:call(?MODULE, {login, Username, undefined}),
-			case Reply of
-				max_reached ->
-					io:format("Maximum number of logged in clients reached~n"),
-					login();
-				already_exists ->
-					io:format("Username already logged on~n"),
-					login();
-				ok ->
-					Username
-			end;
+			undefined;
 		_ ->
 			io:format("This user is password protected~n"),
 			PromptP = "Please input your password: ",
-			Inputpass = read(PromptP),
-			Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
-			case Reply of
-				max_reached ->
-					io:format("Maximum number of logged in clients reached~n"),
-					login();
-				already_exists ->
-					io:format("Username already logged on~n"),
-					login();
-				wrong_password ->
-					io:format("Wrong password, try again~n"),
-					login();
-				ok ->
-					Username
-			end
-
+			read(PromptP)
 	end.
 logout() ->
 	Reply = gen_statem:call(?MODULE, logout),
