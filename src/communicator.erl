@@ -113,7 +113,8 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                     Password = decode_from_7_bits(CodedPassword),
                     case Password of
                         SetPass ->
-                            UpdatedClients = maps:update(Name, Client#client{address = Address}, State#state.clients),
+                            UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
+                            [send_message(Name, Time, From, Message) || {Time, From, Message} <- Client#client.inbox],    
                             {reply, ok, State#state{clients = UpdatedClients}};
                         _ ->
                             {reply, wrong_password, State#state{}}
