@@ -45,13 +45,11 @@ callback_mode() ->
 
 logged_out({call, From}, {login, Username, Password}, Data) ->
 	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
-		already_exists ->
-			{keep_state_and_data, {reply, From, already_exists}};
-		wrong_password ->
-			{keep_state_and_data, {reply, From, wrong_password}};
 		ok ->
 			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
-			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}}
+			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}};
+		Reply ->
+			{keep_state_and_data, {reply, From, Reply}}
 	end;
 logged_out({call, From}, _, _Data) ->
 	handle_unknown(From).
@@ -195,6 +193,9 @@ login() ->
 		undefined ->
 			Reply = gen_statem:call(?MODULE, {login, Username, undefined}),
 			case Reply of
+				max_reached ->
+					io:format("Maximum number of logged in clients reached~n"),
+					login();
 				already_exists ->
 					io:format("Username already logged on~n"),
 					login();
@@ -207,6 +208,9 @@ login() ->
 			Inputpass = read(PromptP),
 			Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
 			case Reply of
+				max_reached ->
+					io:format("Maximum number of logged in clients reached~n"),
+					login();
 				already_exists ->
 					io:format("Username already logged on~n"),
 					login();

@@ -101,26 +101,34 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
     %% Przeszukiwanie mapy, zwrócenie already_exists w przypadku gdy użytkownik Name
     %% już w niej występuje, dodanie go w przeciwnym przypadku.
     Name = decode_from_7_bits(CodedName),
-    Client = maps:get(Name, State#state.clients, not_found),
-    case Client of
-        not_found ->
-            UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
-            {reply, ok, State#state{clients = UpdatedClients}};
-        _ ->
-            case Client#client.address of
-                undefined ->
-                    SetPass = Client#client.password,
-                    Password = decode_from_7_bits(CodedPassword),
-                    case Password of
-                        SetPass ->
-                            [send_message(Name, Time, From, Message) || {Time, From, Message} <- Client#client.inbox],   
-                            UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
-                            {reply, ok, State#state{clients = UpdatedClients}};
-                        _ ->
-                            {reply, wrong_password, State#state{}}
-                    end;
+    ListOfUsers = maps:to_list(State#state.clients),
+    ActiveUsers = [ Name1 || {Name1, Client} <- ListOfUsers, Client#client.address =/= undefined ],
+    NumberOfActiveUsers = length(ActiveUsers),
+    if  
+        NumberOfActiveUsers >= State#state.max_clients ->
+            {reply, max_reached, State};
+        true ->
+            Client = maps:get(Name, State#state.clients, not_found),
+            case Client of
+                not_found ->
+                    UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
+                    {reply, ok, State#state{clients = UpdatedClients}};
                 _ ->
-                    {reply, already_exists, State}
+                    case Client#client.address of
+                        undefined ->
+                            SetPass = Client#client.password,
+                            Password = decode_from_7_bits(CodedPassword),
+                            case Password of
+                                SetPass ->
+                                    [send_message(Name, Time, From, Message) || {Time, From, Message} <- Client#client.inbox],   
+                                    UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
+                                    {reply, ok, State#state{clients = UpdatedClients}};
+                                _ ->
+                                    {reply, wrong_password, State#state{}}
+                            end;
+                        _ ->
+                            {reply, already_exists, State}
+                    end
             end
     end;
 handle_call({logout, CodedName}, _From, State) ->
