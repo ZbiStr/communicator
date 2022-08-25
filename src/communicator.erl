@@ -113,8 +113,8 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                     Password = decode_from_7_bits(CodedPassword),
                     case Password of
                         SetPass ->
+                            [send_message(Name, Time, From, Message) || {Time, From, Message} <- Client#client.inbox],   
                             UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
-                            [send_message(Name, Time, From, Message) || {Time, From, Message} <- Client#client.inbox],    
                             {reply, ok, State#state{clients = UpdatedClients}};
                         _ ->
                             {reply, wrong_password, State#state{}}
@@ -193,7 +193,7 @@ handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage}, State) 
             [gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}) 
             || {_Name, Client} <- ListWithoutSender, Client#client.address =/= undefined],
             %% Aktualizacja inboxów
-            UpdatedInboxes = [ update(Name, Client, From, Message) || {Name, Client} <- ListWithoutSender],
+            UpdatedInboxes = [ update(Name, Client, Time, From, Message) || {Name, Client} <- ListWithoutSender],
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
             %% Wyznaczenie listy wszystkich zarejestrowanych & zalogowanych użytkowników w celu zapisania otrzymanej wiadomości do pliku
             RegisteredAndActiveUsers = [User || {User, Client} <- ListWithoutSender, status(Client) == registered_on],
@@ -262,10 +262,10 @@ clear_whole_table() ->
     dets:delete_all_objects(Table),
     dets:close(Table).
 
-update(Name, Client, From, Message) ->
+update(Name, Client, Time, From, Message) ->
     case Client#client.address of
-        undefined -> {Name, Client#client{inbox = Client#client.inbox ++ [{From, Message}]}};
-        _ -> {Name, Client#client{}}
+        undefined -> {Name, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message}]}};
+        _         -> {Name, Client#client{}}
     end.
 
 status(Client) ->
