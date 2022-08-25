@@ -101,34 +101,26 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
     %% Przeszukiwanie mapy, zwrócenie already_exists w przypadku gdy użytkownik Name
     %% już w niej występuje, dodanie go w przeciwnym przypadku.
     Name = decode_from_7_bits(CodedName),
-    ListOfUsers = maps:to_list(State#state.clients),
-    ActiveUsers = [ Name1 || {Name1, Client} <- ListOfUsers, Client#client.address =/= undefined ],
-    NumberOfActiveUsers = length(ActiveUsers),
-    if  
-        NumberOfActiveUsers >= State#state.max_clients ->
-            {reply, max_reached, State};
-        true ->
-            Client = maps:get(Name, State#state.clients, not_found),
-            case Client of
-                not_found ->
-                    UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
-                    {reply, ok, State#state{clients = UpdatedClients}};
-                _ ->
-                    case Client#client.address of
-                        undefined ->
-                            SetPass = Client#client.password,
-                            Password = decode_from_7_bits(CodedPassword),
-                            case Password of
-                                SetPass ->
-                                    [send_message(Name, Time, From, Message) || {Time, From, Message} <- Client#client.inbox],   
-                                    UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
-                                    {reply, ok, State#state{clients = UpdatedClients}};
-                                _ ->
-                                    {reply, wrong_password, State#state{}}
-                            end;
+    Client = maps:get(Name, State#state.clients, not_found),
+    case Client of
+        not_found ->
+            UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
+            {reply, ok, State#state{clients = UpdatedClients}};
+        _ ->
+            case Client#client.address of
+                undefined ->
+                    SetPass = Client#client.password,
+                    Password = decode_from_7_bits(CodedPassword),
+                    case Password of
+                        SetPass ->
+                            [send_message(Name, Time, From, Message) || {Time, From, Message} <- Client#client.inbox],   
+                            UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
+                            {reply, ok, State#state{clients = UpdatedClients}};
                         _ ->
-                            {reply, already_exists, State}
-                    end
+                            {reply, wrong_password, State#state{}}
+                    end;
+                _ ->
+                    {reply, already_exists, State}
             end
     end;
 handle_call({logout, CodedName}, _From, State) ->
@@ -189,19 +181,21 @@ handle_call(stop, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
     
-handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage}, State) ->
+handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, CodedMessageId}, State) ->
     From = decode_from_7_bits(CodedFrom),
     Message = decode_from_7_bits(CodedMessage),
     Time = decode_from_7_bits(CodedTime),
+    IdMsg = decode_from_7_bits(CodedMessageId),
     case CodedTo of
         all ->
             {ok, Value} = maps:find(From, State#state.clients),
             %% Wysyłanie wiadomości do wszystkich aktywnych osób poza nadawcą
             ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
+            gen_statem:cast(From, {msg_confirm, IdMsg}),
             [gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}) 
             || {_Name, Client} <- ListWithoutSender, Client#client.address =/= undefined],
             %% Aktualizacja inboxów
-            UpdatedInboxes = [ update(Name, Client, Time, From, Message) || {Name, Client} <- ListWithoutSender],
+            UpdatedInboxes = [{Name, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, IdMsg}]}} || {Name, Client} <- ListWithoutSender],
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
             %% Wyznaczenie listy wszystkich zarejestrowanych & zalogowanych użytkowników w celu zapisania otrzymanej wiadomości do pliku
             RegisteredAndActiveUsers = [User || {User, Client} <- ListWithoutSender, status(Client) == registered_on],
@@ -215,15 +209,20 @@ handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage}, State) 
             {ok, Client} = maps:find(To, State#state.clients),
             case status(Client) of
                 registered_off -> %% aktualizacja skrzynki odbiorczej zarejestrowanych & wylogowanych
-                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message}]}, State#state.clients),
+                    gen_statem:cast(From, {msg_confirm, IdMsg}),
+                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, IdMsg}]}, State#state.clients),
                     {noreply, State#state{clients = UpdatedClients}};
                 registered_on -> %% wysłanie wiadomości prywatnych & zapisanie do pliku dla zarejestrowanych & zalogowanych
+                    gen_statem:cast(From, {msg_confirm, IdMsg}),
+                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, IdMsg}]}, State#state.clients),
                     gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
                     save_to_file([To], Time, From, Message),
-                    {noreply, State#state{}};
+                    {noreply, State#state{clients = UpdatedClients}};
                 on -> %% wysłanie wiadomości prywatnych niezarejestrowanych & zalogowanych
                     gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
-                    {noreply, State#state{}}    
+                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, IdMsg}]}, State#state.clients),
+                    gen_statem:cast(From, {msg_confirm, IdMsg}),
+                    {noreply, State#state{clients = UpdatedClients}}    
             end  
     end;
 handle_cast(_Msg, State) ->

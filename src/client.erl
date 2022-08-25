@@ -7,10 +7,23 @@
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
 -define(COOKIE, ciasteczko).
+-define(MSG_DELIVERY_TIME, 5000).
 
 -record(data, {
 	username = "" :: string(),
-	address  :: atom()
+	address  :: atom(), 
+	outbox :: list()
+}).
+-record(msg, {
+	from,
+	to,
+	msg_txt,
+	time
+}).
+-record(msg_sent, {
+	msg_ref, 
+	timer_ref, 
+	msg
 }).
 
 
@@ -45,11 +58,12 @@ callback_mode() ->
 
 logged_out({call, From}, {login, Username, Password}, Data) ->
 	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
+		already_exists ->
+			{keep_state_and_data, {reply, From, already_exists}};
+		wrong_password ->
+			{keep_state_and_data, {reply, From, wrong_password}};
 		ok ->
-			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
-			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}};
-		Reply ->
-			{keep_state_and_data, {reply, From, Reply}}
+			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}}
 	end;
 logged_out({call, From}, _, _Data) ->
 	handle_unknown(From).
@@ -67,12 +81,17 @@ logged_in({call, From}, get_name, Data) ->
 logged_in({call, From}, help, _Data) ->
 	help(),
 	{keep_state_and_data, {reply, From, ok}};
-logged_in({call, From}, {send, To, Message}, Data) ->
-	{{Y,M,D},{H,Min,S}} = calendar:local_time(),
-	Year = integer_to_list(Y),
-    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
-    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
-    Time =  Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second,
+logged_in({call, From}, {send, To, Message}, Data = #data{outbox = Outbox}) ->
+	{{Y,M,D},{H,S,_MS}} = calendar:local_time(),
+	Time =  integer_to_list(Y) ++ "/" ++ "0" ++ integer_to_list(M) ++ "/" ++ 
+			integer_to_list(D) ++ " " ++ integer_to_list(H) ++ ":" ++ 
+			integer_to_list(S),
+	MsgId = make_ref(),
+	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry,MsgId}),
+	MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, From, Message}},
+	communicator:send_message(To, Time, From, Message, MsgId),
+	NewOutbox = Outbox ++ [MsgSent],
+	NewData = Data#data{outbox = NewOutbox},
 	case To of 
 		[] ->
 			communicator:send_message(all, Time, Data#data.username, Message),
@@ -95,6 +114,28 @@ logged_in({call, From}, history, Data) ->
 	{keep_state_and_data, {reply, From, communicator:user_history(Data#data.username)}};
 logged_in({call, From}, _, _Data) ->
 	handle_unknown(From);
+
+%%confirmation from server that message was received 
+logged_in(cast, {msg_retry, MsgId}, Data = #data{outbox = Outbox}) ->
+	{MsgSent, OutBox1} = take_msg_by_ref(MsgId, Outbox),
+	timer:cancel(MsgSent#msg_sent.timer_ref),
+	{keep_state, Data#data{outbox = OutBox1}};
+
+%%when server doesn't confirm in the time defined in the macro MSG_DELIVERY_TIMER
+logged_in(timeout, {msg_retry, MsgRef}, Data = #data{outbox = Outbox}) ->
+	{Message, Outbox1} = take_msg_by_ref(MsgRef, Outbox),
+	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgRef}),
+	NewMsg = Message#msg_sent{timer_ref = TimerRef}, 
+	Msg2 = Message#msg_sent.msg,
+	{From, To, Message, Time} = Msg2,
+	NewOutbox = Outbox1 ++ [NewMsg],
+	NewData = Data#data{outbox = NewOutbox},
+	communicator:send_message(To, Time, From, Message, MsgRef),
+	{keep_state, NewData};
+logged_in(EventType, EventContent, Data) ->
+	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),
+	keep_state_and_data;
+
 logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage}, _Data) ->
 	From = decode_from_7_bits(CodedFrom),
 	Message = decode_from_7_bits(CodedMessage),
@@ -170,7 +211,10 @@ read_commands(Username) ->
 					case History of
 						[] -> io:format("Your history is empty.~n");
 						_ -> 
-							[io:format("~s - ~s: ~s~n", [Time, From, Message])
+							[io:format("~s - ~s: ~s~n", [
+								decode_from_7_bits(Time), 
+								decode_from_7_bits(From), 
+								decode_from_7_bits(Message)])
 							|| {Time, From, Message} <- History]
 					end
 			end,
@@ -193,13 +237,11 @@ login() ->
 		undefined ->
 			Reply = gen_statem:call(?MODULE, {login, Username, undefined}),
 			case Reply of
-				max_reached ->
-					io:format("Maximum number of logged in clients reached~n"),
-					login();
 				already_exists ->
 					io:format("Username already logged on~n"),
 					login();
 				ok ->
+					io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
 					Username
 			end;
 		_ ->
@@ -208,9 +250,6 @@ login() ->
 			Inputpass = read(PromptP),
 			Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
 			case Reply of
-				max_reached ->
-					io:format("Maximum number of logged in clients reached~n"),
-					login();
 				already_exists ->
 					io:format("Username already logged on~n"),
 					login();
@@ -218,6 +257,7 @@ login() ->
 					io:format("Wrong password, try again~n"),
 					login();
 				ok ->
+					io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
 					Username
 			end
 
@@ -261,13 +301,12 @@ read(Prompt) ->
 	% 32 to 126
 	Input = string:trim(io:get_line(Prompt), trailing, [$\n]),
 	Check = [32 || _<- Input],
-	EmptyPrompt = [32 || _<- Prompt],
 	Output = [check(Y) || Y <- Input],
 	case Output of
 		Check ->
 			Input;
 		_ ->
-			io:format("~s~n", [EmptyPrompt ++ Output]),
+			io:format("~s~n", [Output]),
 			io:format("Wrong character at indicated position~n"),
 			io:format("Try again~n"),
 			read(Prompt)
@@ -288,3 +327,19 @@ code_to_7_bits(Input) ->
 decode_from_7_bits(Input) ->
 	Bit = << <<0:1,Code:7>> || <<Code>> <= Input>>,
 	[(A+32) || <<A:8>> <= Bit].
+
+%%take_msg_by_ref(MsgId, Outbox)
+	%%find msg in outbox with matching msg_ref and return msg_ref
+	%% and outbox without matching msg
+	%%{FoundMsg, OutboxWithoutFoundMsg}
+%%recursive loop exit case
+take_msg_by_ref(MsgId, Outbox) ->
+	take_msg_by_ref(MsgId, Outbox, []).
+take_msg_by_ref(_MsgId, [], _Acc) ->
+	not_found;
+%%matched
+take_msg_by_ref(MsgId, [SentMsg | Tl], Acc) when SentMsg#msg_sent.msg_ref == MsgId ->
+	{SentMsg, Acc ++ Tl};
+%% no match, test next item
+take_msg_by_ref(MsgId, [H | Tl], Acc) ->
+	take_msg_by_ref(MsgId, Tl, Acc ++ [H]).
