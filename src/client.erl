@@ -50,6 +50,7 @@ logged_out({call, From}, {login, Username, Password}, Data) ->
 		wrong_password ->
 			{keep_state_and_data, {reply, From, wrong_password}};
 		ok ->
+			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
 			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}}
 	end;
 logged_out({call, From}, _, _Data) ->
@@ -198,7 +199,6 @@ login() ->
 					io:format("Username already logged on~n"),
 					login();
 				ok ->
-					io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
 					Username
 			end;
 		_ ->
@@ -214,7 +214,6 @@ login() ->
 					io:format("Wrong password, try again~n"),
 					login();
 				ok ->
-					io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
 					Username
 			end
 
