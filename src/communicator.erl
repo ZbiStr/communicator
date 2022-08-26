@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, logout/1, send_message/4, set_password/2, find_user/1, show_active_users/0, find_password/1, login/3, user_history/1, clear_whole_table/0]).
+-export([stop/0, start_link/0, logout/1, send_message/5, set_password/2, find_user/1, show_active_users/0, find_password/1, login/3, user_history/1, clear_whole_table/0]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -46,16 +46,17 @@ logout(Name) ->
     CodedName = code_to_7_bits(Name),
     gen_server:call({?SERVER, server_node()}, {logout, CodedName}).
 
-send_message(To, Time, From, Message) ->
+send_message(To, Time, From, Message, MsgId) ->
     CodedFrom = code_to_7_bits(From),
     CodedMessage = code_to_7_bits(Message),
     CodedTime = code_to_7_bits(Time),
+    CodedMsgId = code_to_7_bits(MsgId),
     case To of
         all ->
-            gen_server:cast({?SERVER, server_node()},{send_message, To, CodedTime, CodedFrom, CodedMessage});
+            gen_server:cast({?SERVER, server_node()},{send_message, To, CodedTime, CodedFrom, CodedMessage, CodedMsgId});
         _ ->
             CodedTo = code_to_7_bits(To),
-            gen_server:cast({?SERVER, server_node()},{send_message, CodedTo, CodedTime, CodedFrom, CodedMessage})
+            gen_server:cast({?SERVER, server_node()},{send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, CodedMsgId})
     end.
 
 set_password(Name, Password) ->
@@ -113,7 +114,7 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                     Password = decode_from_7_bits(CodedPassword),
                     case Password of
                         SetPass ->
-                            [send_message(Name, Time, From, Message) || {Time, From, Message} <- Client#client.inbox],   
+                            [send_message(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],   
                             UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
                             {reply, ok, State#state{clients = UpdatedClients}};
                         _ ->
@@ -181,21 +182,20 @@ handle_call(stop, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
     
-handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, CodedMessageId}, State) ->
+handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, CodedMsgId}, State) ->
     From = decode_from_7_bits(CodedFrom),
     Message = decode_from_7_bits(CodedMessage),
     Time = decode_from_7_bits(CodedTime),
-    IdMsg = decode_from_7_bits(CodedMessageId),
+    MsgId = decode_from_7_bits(CodedMsgId),
     case CodedTo of
         all ->
             {ok, Value} = maps:find(From, State#state.clients),
             %% Wysyłanie wiadomości do wszystkich aktywnych osób poza nadawcą
             ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
-            gen_statem:cast(From, {msg_confirm, IdMsg}),
             [gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}) 
             || {_Name, Client} <- ListWithoutSender, Client#client.address =/= undefined],
             %% Aktualizacja inboxów
-            UpdatedInboxes = [{Name, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, IdMsg}]}} || {Name, Client} <- ListWithoutSender],
+            UpdatedInboxes = [{Name, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}} || {Name, Client} <- ListWithoutSender],
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
             %% Wyznaczenie listy wszystkich zarejestrowanych & zalogowanych użytkowników w celu zapisania otrzymanej wiadomości do pliku
             RegisteredAndActiveUsers = [User || {User, Client} <- ListWithoutSender, status(Client) == registered_on],
@@ -203,25 +203,26 @@ handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, CodedMes
                 [] -> ok;
                 _ -> save_to_file(RegisteredAndActiveUsers, Time, From, Message)
             end,
+            gen_statem:cast(From, {msg_confirm, code_to_7_bits(MsgId)}),
             {noreply, State#state{clients = UpdatedClients}};
         _ ->
             To = decode_from_7_bits(CodedTo),
             {ok, Client} = maps:find(To, State#state.clients),
             case status(Client) of
                 registered_off -> %% aktualizacja skrzynki odbiorczej zarejestrowanych & wylogowanych
-                    gen_statem:cast(From, {msg_confirm, IdMsg}),
-                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, IdMsg}]}, State#state.clients),
+                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
+                    gen_statem:cast(From, {msg_confirm, code_to_7_bits(MsgId)}),
                     {noreply, State#state{clients = UpdatedClients}};
                 registered_on -> %% wysłanie wiadomości prywatnych & zapisanie do pliku dla zarejestrowanych & zalogowanych
-                    gen_statem:cast(From, {msg_confirm, IdMsg}),
-                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, IdMsg}]}, State#state.clients),
+                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
                     gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
                     save_to_file([To], Time, From, Message),
+                    gen_statem:cast(From, {msg_confirm, code_to_7_bits(MsgId)}),
                     {noreply, State#state{clients = UpdatedClients}};
                 on -> %% wysłanie wiadomości prywatnych niezarejestrowanych & zalogowanych
                     gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
-                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, IdMsg}]}, State#state.clients),
-                    gen_statem:cast(From, {msg_confirm, IdMsg}),
+                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
+                    gen_statem:cast(From, {msg_confirm, code_to_7_bits(MsgId)}),
                     {noreply, State#state{clients = UpdatedClients}}    
             end  
     end;

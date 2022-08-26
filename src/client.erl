@@ -95,14 +95,14 @@ logged_in({call, From}, {send, To, Message}, Data = #data{outbox = Outbox}) ->
 	case To of 
 		[] ->
 			communicator:send_message(all, Time, Data#data.username, Message),
-			{keep_state_and_data, {reply, From, all}};
+			{keep_state_and_data, {reply, From, {all, NewData}}};
 		_ ->
 			case communicator:find_user(To) of
 				does_not_exist ->
 					{keep_state_and_data, {reply, From, does_not_exist}};
 				ok ->
 					communicator:send_message(To, Time, Data#data.username, Message),
-					{keep_state_and_data, {reply, From, private}}
+					{keep_state, {reply, From, {private, NewData}}}
 			end
 	end;
 logged_in({call, From}, active_users, Data) ->
@@ -116,7 +116,8 @@ logged_in({call, From}, _, _Data) ->
 	handle_unknown(From);
 
 %%confirmation from server that message was received 
-logged_in(cast, {msg_retry, MsgId}, Data = #data{outbox = Outbox}) ->
+logged_in(cast, {msg_retry, CodedMsgId}, Data = #data{outbox = Outbox}) ->
+	MsgId = decode_from_7_bits(CodedMsgId),
 	{MsgSent, OutBox1} = take_msg_by_ref(MsgId, Outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
 	{keep_state, Data#data{outbox = OutBox1}};
@@ -132,16 +133,15 @@ logged_in(timeout, {msg_retry, MsgRef}, Data = #data{outbox = Outbox}) ->
 	NewData = Data#data{outbox = NewOutbox},
 	communicator:send_message(To, Time, From, Message, MsgRef),
 	{keep_state, NewData};
-logged_in(EventType, EventContent, Data) ->
-	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),
-	keep_state_and_data;
-
 logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage}, _Data) ->
 	From = decode_from_7_bits(CodedFrom),
 	Message = decode_from_7_bits(CodedMessage),
 	Time = decode_from_7_bits(CodedTime),
 	io:format("~s - ~s: ~s~n", [Time, From, Message]),
-    keep_state_and_data.
+    keep_state_and_data;
+logged_in(EventType, EventContent, Data) ->
+	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),
+	keep_state_and_data.
 
 handle_unknown(From) ->
 	io:format("Not a viable command~n"),
@@ -181,11 +181,11 @@ read_commands(Username) ->
 			Message = read(PromptMessage),
 			Status = gen_statem:call(?MODULE, {send, To, Message}),
 			case Status of 
-				all ->
+				{all, _Data} ->
 						io:format("You sent a message to all users~n");
 				does_not_exist ->
 						io:format("There is no such user!~n");
-				private ->
+				{private, _Data} ->
 						io:format("You sent a message to ~p~n", [To])
 			end,
 			read_commands(Username);
@@ -328,11 +328,6 @@ decode_from_7_bits(Input) ->
 	Bit = << <<0:1,Code:7>> || <<Code>> <= Input>>,
 	[(A+32) || <<A:8>> <= Bit].
 
-%%take_msg_by_ref(MsgId, Outbox)
-	%%find msg in outbox with matching msg_ref and return msg_ref
-	%% and outbox without matching msg
-	%%{FoundMsg, OutboxWithoutFoundMsg}
-%%recursive loop exit case
 take_msg_by_ref(MsgId, Outbox) ->
 	take_msg_by_ref(MsgId, Outbox, []).
 take_msg_by_ref(_MsgId, [], _Acc) ->
