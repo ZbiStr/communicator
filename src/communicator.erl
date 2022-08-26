@@ -50,13 +50,12 @@ send_message(To, Time, From, Message, MsgId) ->
     CodedFrom = code_to_7_bits(From),
     CodedMessage = code_to_7_bits(Message),
     CodedTime = code_to_7_bits(Time),
-    CodedMsgId = code_to_7_bits(MsgId),
     case To of
         all ->
-            gen_server:cast({?SERVER, server_node()},{send_message, To, CodedTime, CodedFrom, CodedMessage, CodedMsgId});
+            gen_server:cast({?SERVER, server_node()},{send_message, To, CodedTime, CodedFrom, CodedMessage, MsgId});
         _ ->
             CodedTo = code_to_7_bits(To),
-            gen_server:cast({?SERVER, server_node()},{send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, CodedMsgId})
+            gen_server:cast({?SERVER, server_node()},{send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId})
     end.
 
 set_password(Name, Password) ->
@@ -182,11 +181,10 @@ handle_call(stop, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
     
-handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, CodedMsgId}, State) ->
+handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
     From = decode_from_7_bits(CodedFrom),
     Message = decode_from_7_bits(CodedMessage),
     Time = decode_from_7_bits(CodedTime),
-    MsgId = decode_from_7_bits(CodedMsgId),
     case CodedTo of
         all ->
             {ok, Value} = maps:find(From, State#state.clients),
@@ -203,27 +201,29 @@ handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, CodedMsg
                 [] -> ok;
                 _ -> save_to_file(RegisteredAndActiveUsers, Time, From, Message)
             end,
-            gen_statem:cast(From, {msg_confirm, code_to_7_bits(MsgId)}),
+            {ok, Sender} = maps:find(From, State#state.clients),
+            gen_statem:cast(Sender#client.address, {msg_confirm, MsgId}),
             {noreply, State#state{clients = UpdatedClients}};
         _ ->
             To = decode_from_7_bits(CodedTo),
+            {ok, Sender} = maps:find(From, State#state.clients),
             {ok, Client} = maps:find(To, State#state.clients),
             case status(Client) of
                 registered_off -> %% aktualizacja skrzynki odbiorczej zarejestrowanych & wylogowanych
                     UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
-                    gen_statem:cast(From, {msg_confirm, code_to_7_bits(MsgId)}),
+                    gen_statem:cast(Sender#client.address, {msg_confirm, MsgId}),
                     {noreply, State#state{clients = UpdatedClients}};
                 registered_on -> %% wysłanie wiadomości prywatnych & zapisanie do pliku dla zarejestrowanych & zalogowanych
                     UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
                     gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
                     save_to_file([To], Time, From, Message),
-                    gen_statem:cast(From, {msg_confirm, code_to_7_bits(MsgId)}),
+                    gen_statem:cast(Sender#client.address, {msg_confirm, MsgId}),
                     {noreply, State#state{clients = UpdatedClients}};
                 on -> %% wysłanie wiadomości prywatnych niezarejestrowanych & zalogowanych
                     gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
                     UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
-                    gen_statem:cast(From, {msg_confirm, code_to_7_bits(MsgId)}),
-                    {noreply, State#state{clients = UpdatedClients}}    
+                    gen_statem:cast(Sender#client.address, {msg_confirm, MsgId}),
+                    {noreply, State#state{clients = UpdatedClients}}
             end  
     end;
 handle_cast(_Msg, State) ->

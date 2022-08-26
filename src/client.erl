@@ -51,19 +51,18 @@ init([]) ->
             Node
     end,
 	erlang:set_cookie(local, ?COOKIE),
-	{ok, logged_out, #data{address = Address}}.
+	{ok, logged_out, #data{address = Address, outbox = []}}.
 
 callback_mode() ->
 	state_functions.
 
 logged_out({call, From}, {login, Username, Password}, Data) ->
 	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
-		already_exists ->
-			{keep_state_and_data, {reply, From, already_exists}};
-		wrong_password ->
-			{keep_state_and_data, {reply, From, wrong_password}};
 		ok ->
-			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}}
+			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
+			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}};
+		Reply ->
+			{keep_state_and_data, {reply, From, Reply}}
 	end;
 logged_out({call, From}, _, _Data) ->
 	handle_unknown(From).
@@ -81,28 +80,27 @@ logged_in({call, From}, get_name, Data) ->
 logged_in({call, From}, help, _Data) ->
 	help(),
 	{keep_state_and_data, {reply, From, ok}};
-logged_in({call, From}, {send, To, Message}, Data = #data{outbox = Outbox}) ->
+logged_in({call, From}, {send, To, Message}, Data) ->
 	{{Y,M,D},{H,S,_MS}} = calendar:local_time(),
 	Time =  integer_to_list(Y) ++ "/" ++ "0" ++ integer_to_list(M) ++ "/" ++ 
 			integer_to_list(D) ++ " " ++ integer_to_list(H) ++ ":" ++ 
 			integer_to_list(S),
 	MsgId = make_ref(),
-	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry,MsgId}),
-	MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, From, Message}},
-	communicator:send_message(To, Time, From, Message, MsgId),
-	NewOutbox = Outbox ++ [MsgSent],
+	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
+	MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, To, Message}},
+	NewOutbox = Data#data.outbox ++ [MsgSent],
 	NewData = Data#data{outbox = NewOutbox},
 	case To of 
 		[] ->
-			communicator:send_message(all, Time, Data#data.username, Message),
-			{keep_state_and_data, {reply, From, {all, NewData}}};
+			communicator:send_message(all, Time, Data#data.username, Message, MsgId),
+			{keep_state, NewData, {reply, From, all}};
 		_ ->
 			case communicator:find_user(To) of
 				does_not_exist ->
 					{keep_state_and_data, {reply, From, does_not_exist}};
 				ok ->
-					communicator:send_message(To, Time, Data#data.username, Message),
-					{keep_state, {reply, From, {private, NewData}}}
+					communicator:send_message(To, Time, Data#data.username, Message, MsgId),
+					{keep_state, NewData, {reply, From, private}}
 			end
 	end;
 logged_in({call, From}, active_users, Data) ->
@@ -116,22 +114,20 @@ logged_in({call, From}, _, _Data) ->
 	handle_unknown(From);
 
 %%confirmation from server that message was received 
-logged_in(cast, {msg_retry, CodedMsgId}, Data = #data{outbox = Outbox}) ->
-	MsgId = decode_from_7_bits(CodedMsgId),
-	{MsgSent, OutBox1} = take_msg_by_ref(MsgId, Outbox),
+logged_in(cast, {msg_confirm, MsgId}, Data) ->
+	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, Data#data.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
-	{keep_state, Data#data{outbox = OutBox1}};
+	{keep_state, Data#data{outbox = NewOutBox}};
 
 %%when server doesn't confirm in the time defined in the macro MSG_DELIVERY_TIMER
-logged_in(timeout, {msg_retry, MsgRef}, Data = #data{outbox = Outbox}) ->
-	{Message, Outbox1} = take_msg_by_ref(MsgRef, Outbox),
+logged_in(timeout, {msg_retry, MsgRef}, Data) ->
+	{Message, Outbox1} = take_msg_by_ref(MsgRef, Data#data.outbox),
 	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgRef}),
 	NewMsg = Message#msg_sent{timer_ref = TimerRef}, 
-	Msg2 = Message#msg_sent.msg,
-	{From, To, Message, Time} = Msg2,
+	{Time, To, Message_txt} = Message#msg_sent.msg,
 	NewOutbox = Outbox1 ++ [NewMsg],
 	NewData = Data#data{outbox = NewOutbox},
-	communicator:send_message(To, Time, From, Message, MsgRef),
+	communicator:send_message(To, Time, Data#data.username, Message_txt, MsgRef),
 	{keep_state, NewData};
 logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage}, _Data) ->
 	From = decode_from_7_bits(CodedFrom),
@@ -181,11 +177,11 @@ read_commands(Username) ->
 			Message = read(PromptMessage),
 			Status = gen_statem:call(?MODULE, {send, To, Message}),
 			case Status of 
-				{all, _Data} ->
+				all->
 						io:format("You sent a message to all users~n");
 				does_not_exist ->
 						io:format("There is no such user!~n");
-				{private, _Data} ->
+				private ->
 						io:format("You sent a message to ~p~n", [To])
 			end,
 			read_commands(Username);
@@ -232,35 +228,30 @@ read_commands(Username) ->
 login() ->
 	Prompt = "Please input your username: ",
 	Username = read(Prompt),
+	Inputpass = get_pass(Username),
+	Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
+	case Reply of
+		max_reached ->
+			io:format("Maximum number of logged in clients reached~n"),
+			login();
+		already_exists ->
+			io:format("Username already logged on~n"),
+			login();
+		wrong_password ->
+			io:format("Wrong password, try again~n"),
+			login();
+		ok ->
+			Username
+	end.
+get_pass(Username) ->
 	Findpass = communicator:find_password(Username),
 	case Findpass of
 		undefined ->
-			Reply = gen_statem:call(?MODULE, {login, Username, undefined}),
-			case Reply of
-				already_exists ->
-					io:format("Username already logged on~n"),
-					login();
-				ok ->
-					io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
-					Username
-			end;
+			undefined;
 		_ ->
 			io:format("This user is password protected~n"),
 			PromptP = "Please input your password: ",
-			Inputpass = read(PromptP),
-			Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
-			case Reply of
-				already_exists ->
-					io:format("Username already logged on~n"),
-					login();
-				wrong_password ->
-					io:format("Wrong password, try again~n"),
-					login();
-				ok ->
-					io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
-					Username
-			end
-
+			read(PromptP)
 	end.
 logout() ->
 	Reply = gen_statem:call(?MODULE, logout),
