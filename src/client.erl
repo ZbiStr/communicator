@@ -85,13 +85,13 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 	Time =  integer_to_list(Y) ++ "/" ++ "0" ++ integer_to_list(M) ++ "/" ++ 
 			integer_to_list(D) ++ " " ++ integer_to_list(H) ++ ":" ++ 
 			integer_to_list(S),
-	MsgId = make_ref(),
-	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
-	MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, To, Message}},
-	NewOutbox = Data#data.outbox ++ [MsgSent],
-	NewData = Data#data{outbox = NewOutbox},
 	case To of 
 		[] ->
+			MsgId = make_ref(),
+			{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
+			MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, To, Message}},
+			NewOutbox = Data#data.outbox ++ [MsgSent],
+			NewData = Data#data{outbox = NewOutbox},
 			communicator:send_message(all, Time, Data#data.username, Message, MsgId),
 			{keep_state, NewData, {reply, From, all}};
 		_ ->
@@ -99,6 +99,11 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 				does_not_exist ->
 					{keep_state_and_data, {reply, From, does_not_exist}};
 				ok ->
+					MsgId = make_ref(),
+					{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
+					MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, To, Message}},
+					NewOutbox = Data#data.outbox ++ [MsgSent],
+					NewData = Data#data{outbox = NewOutbox},
 					communicator:send_message(To, Time, Data#data.username, Message, MsgId),
 					{keep_state, NewData, {reply, From, private}}
 			end
@@ -114,7 +119,7 @@ logged_in({call, From}, _, _Data) ->
 	handle_unknown(From);
 
 %%confirmation from server that message was received 
-logged_in(cast, {msg_confirm, MsgId}, Data) ->
+logged_in(cast, {msg_confirm_from_server, MsgId}, Data) ->
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, Data#data.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
 	{keep_state, Data#data{outbox = NewOutBox}};
@@ -129,11 +134,12 @@ logged_in(timeout, {msg_retry, MsgRef}, Data) ->
 	NewData = Data#data{outbox = NewOutbox},
 	communicator:send_message(To, Time, Data#data.username, Message_txt, MsgRef),
 	{keep_state, NewData};
-logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage}, _Data) ->
+logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage, MsgId}, _Data) ->
 	From = decode_from_7_bits(CodedFrom),
 	Message = decode_from_7_bits(CodedMessage),
 	Time = decode_from_7_bits(CodedTime),
 	io:format("~s - ~s: ~s~n", [Time, From, Message]),
+	communicator:confirm(MsgId),
     keep_state_and_data;
 logged_in(EventType, EventContent, Data) ->
 	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),
@@ -207,10 +213,9 @@ read_commands(Username) ->
 					case History of
 						[] -> io:format("Your history is empty.~n");
 						_ -> 
-							[io:format("~s - ~s: ~s~n", [
-								decode_from_7_bits(Time), 
-								decode_from_7_bits(From), 
-								decode_from_7_bits(Message)])
+							[io:format("~s - ~s: ~s~n", [Time, 
+								From, 
+								Message])
 							|| {Time, From, Message} <- History]
 					end
 			end,

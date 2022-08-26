@@ -2,23 +2,30 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, logout/1, send_message/5, set_password/2, find_user/1, show_active_users/0, find_password/1, login/3, user_history/1, clear_whole_table/0]).
+-export([stop/0, start_link/0, logout/1, send_message/5, set_password/2, confirm/1, find_user/1, show_active_users/0, find_password/1, login/3, user_history/1, clear_whole_table/0]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -define(SERVER, ?MODULE).
 -define(NODE_NAME, erlangpol).
 -define(COOKIE, ciasteczko).
+-define(MSG_DELIVERY_TIME, 5000).
 
 -record(state, {
     server_name = undefined,
     log_file = undefined,
     max_clients = undefined,
-    clients = #{}}).
+    clients = #{},
+    outbox = []}).
 -record(client, {
     address = undefined,
     inbox=[],
     password = undefined}).
+-record(msg_sent, {
+	msg_ref, 
+	timer_ref, 
+	msg
+}).
 
 % ================================================================================
 % API
@@ -81,6 +88,9 @@ user_history(Username) ->
     decode_from_7_bits(From), 
     decode_from_7_bits(Message)}
     || {Time, From, Message} <- History].
+
+confirm(MsgId) ->
+    gen_server:cast({?SERVER, server_node()},{msg_confirm_from_client, MsgId}).
 
 
 % ================================================================================
@@ -185,50 +195,74 @@ handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, 
     From = decode_from_7_bits(CodedFrom),
     Message = decode_from_7_bits(CodedMessage),
     Time = decode_from_7_bits(CodedTime),
+    {ok, TimeRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
     case CodedTo of
         all ->
             {ok, Value} = maps:find(From, State#state.clients),
-            %% Wysyłanie wiadomości do wszystkich aktywnych osób poza nadawcą
             ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
-            [gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}) 
-            || {_Name, Client} <- ListWithoutSender, Client#client.address =/= undefined],
+            %% Aktualizacja outboxa
+            NewOutbox = [#msg_sent{msg_ref = {MsgId, Name}, timer_ref = TimeRef, msg = {Name, Time, From, Message}} || {Name, Client} <- ListWithoutSender,
+            Client#client.address =/= undefined],
+            UpdatedOutbox = State#state.outbox ++ NewOutbox,
+            %% Wysyłanie wiadomości do wszystkich aktywnych osób poza nadawcą
+            [gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message), {MsgId, Name}}) 
+            || {Name, Client} <- ListWithoutSender, Client#client.address =/= undefined],
             %% Aktualizacja inboxów
-            UpdatedInboxes = [{Name, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}} || {Name, Client} <- ListWithoutSender],
+            UpdatedInboxes = [update(Name, Client, Time, From, Message) || {Name, Client} <- ListWithoutSender],
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
-            %% Wyznaczenie listy wszystkich zarejestrowanych & zalogowanych użytkowników w celu zapisania otrzymanej wiadomości do pliku
-            RegisteredAndActiveUsers = [User || {User, Client} <- ListWithoutSender, status(Client) == registered_on],
-            case RegisteredAndActiveUsers of
-                [] -> ok;
-                _ -> save_to_file(RegisteredAndActiveUsers, Time, From, Message)
-            end,
+            %% Potwierdzenie odebrania wiadomości przez serwer
             {ok, Sender} = maps:find(From, State#state.clients),
-            gen_statem:cast(Sender#client.address, {msg_confirm, MsgId}),
-            {noreply, State#state{clients = UpdatedClients}};
+            gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
+            {noreply, State#state{clients = UpdatedClients, outbox = UpdatedOutbox}};
         _ ->
             To = decode_from_7_bits(CodedTo),
             {ok, Sender} = maps:find(From, State#state.clients),
             {ok, Client} = maps:find(To, State#state.clients),
-            case status(Client) of
-                registered_off -> %% aktualizacja skrzynki odbiorczej zarejestrowanych & wylogowanych
+            case Client#client.address of
+                undefined -> %% aktualizacja skrzynki odbiorczej zarejestrowanych & wylogowanych
                     UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
-                    gen_statem:cast(Sender#client.address, {msg_confirm, MsgId}),
+                    gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
                     {noreply, State#state{clients = UpdatedClients}};
-                registered_on -> %% wysłanie wiadomości prywatnych & zapisanie do pliku dla zarejestrowanych & zalogowanych
-                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
-                    gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
-                    save_to_file([To], Time, From, Message),
-                    gen_statem:cast(Sender#client.address, {msg_confirm, MsgId}),
-                    {noreply, State#state{clients = UpdatedClients}};
-                on -> %% wysłanie wiadomości prywatnych niezarejestrowanych & zalogowanych
-                    gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)}),
-                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
-                    gen_statem:cast(Sender#client.address, {msg_confirm, MsgId}),
-                    {noreply, State#state{clients = UpdatedClients}}
+                _ -> %% wysłanie wiadomości prywatnych dla zalogowanych
+                    gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message), MsgId}),
+                    %%Aktualizacja outboxa
+                    NewOutbox = #msg_sent{msg_ref = MsgId, timer_ref = TimeRef, msg = {To, Time, From, Message}},
+                    UpdatedOutbox = State#state.outbox ++ [NewOutbox],
+                    %% Potwierdzenie odebrania wiadomości przez serwer
+                    gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
+                    {noreply, State#state{outbox = UpdatedOutbox}}
             end  
+    end;
+
+handle_cast({msg_confirm_from_client, MsgId}, State) ->
+	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, State#state.outbox),
+	timer:cancel(MsgSent#msg_sent.timer_ref),
+    {To, Time, From, Message_txt} = MsgSent#msg_sent.msg,
+    {ok, Client} = maps:find(To, State#state.clients),
+    Client = maps:get(To, State#state.clients, not_found),
+    case Client of
+        not_found ->
+            {noreply, State#state{outbox = NewOutBox}};
+        _ ->
+            case Client#client.password of
+                        undefined ->
+                            {noreply, State#state{outbox = NewOutBox}};
+                        _ ->
+                            save_to_file([To], Time, From, Message_txt),
+                            {noreply, State#state{outbox = NewOutBox}}
+            end
     end;
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info({msg_retry, MsgId}, State) ->
+	{Message, Outbox1} = take_msg_by_ref(MsgId, State#state.outbox),
+	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
+	NewMsg = Message#msg_sent{timer_ref = TimerRef}, 
+	{To, Time, From, Message_txt} = Message#msg_sent.msg,
+	NewOutbox = Outbox1 ++ [NewMsg],
+	communicator:send_message(To, Time, From, Message_txt, MsgId),
+	{noreply, State#state{outbox = NewOutbox}};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -275,19 +309,6 @@ update(Name, Client, Time, From, Message) ->
         undefined -> {Name, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message}]}};
         _         -> {Name, Client#client{}}
     end.
-
-status(Client) ->
-    case Client#client.address of
-    undefined ->
-        registered_off;
-    _ ->
-        case Client#client.password of
-            undefined ->
-                on;
-            _ ->
-                registered_on
-        end
-    end.
                 
 server_node() ->
     {ok, Host} = inet:gethostname(),
@@ -318,3 +339,15 @@ load_configuration(ConfigPath) ->
             io:format("Loading config file failed with reason: ~p",[Reason]),
             {error, Reason}
     end.
+
+
+take_msg_by_ref(MsgId, Outbox) ->
+	take_msg_by_ref(MsgId, Outbox, []).
+take_msg_by_ref(_MsgId, [], _Acc) ->
+	{not_found, []};
+%%matched
+take_msg_by_ref(MsgId, [SentMsg | Tl], Acc) when SentMsg#msg_sent.msg_ref == MsgId ->
+	{SentMsg, Acc ++ Tl};
+%% no match, test next item
+take_msg_by_ref(MsgId, [H | Tl], Acc) ->
+	take_msg_by_ref(MsgId, Tl, Acc ++ [H]).
