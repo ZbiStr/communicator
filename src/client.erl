@@ -81,10 +81,11 @@ logged_in({call, From}, help, _Data) ->
 	help(),
 	{keep_state_and_data, {reply, From, ok}};
 logged_in({call, From}, {send, To, Message}, Data) ->
-	{{Y,M,D},{H,S,_MS}} = calendar:local_time(),
-	Time =  integer_to_list(Y) ++ "/" ++ "0" ++ integer_to_list(M) ++ "/" ++ 
-			integer_to_list(D) ++ " " ++ integer_to_list(H) ++ ":" ++ 
-			integer_to_list(S),
+	{{Y,M,D},{H,Min,S}} = calendar:local_time(),
+	Year = integer_to_list(Y),
+    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+    Time =  Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second,
 	case To of 
 		[] ->
 			MsgId = make_ref(),

@@ -258,6 +258,7 @@ handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, 
 handle_cast({msg_confirm_from_client, MsgId}, State) ->
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, State#state.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
+    log(State#state.log_file, "Message with ID ~p has been delivered", [MsgId]),
     {To, Time, From, Message_txt} = MsgSent#msg_sent.msg,
     {ok, Client} = maps:find(To, State#state.clients),
     Client = maps:get(To, State#state.clients, not_found),

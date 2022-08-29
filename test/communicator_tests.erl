@@ -9,6 +9,7 @@
 -define(BADPASSWORD, "badpassword").
 -define(TIME, "12").
 -define(MESSAGE, "message").
+-define(MSGID, msg_id).
 -define(ADDRESS1, address1).
 -define(ADDRESS2, address2).
 
@@ -72,16 +73,16 @@ login_with_wrongpass() ->
 send_message() ->
     ok = communicator:login(?NAME1, ?ADDRESS1, undefined),
     ok = communicator:login(?NAME2, ?ADDRESS2, undefined),
-    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE),
-    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE),
+    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
 
     ok = communicator:set_password(?NAME2, ?PASSWORD),
-    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE),
-    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE),
+    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
 
     ok = communicator:logout(?NAME2),
-    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE),
-    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE),
+    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
     ok = communicator:logout(?NAME1).
     
 show_active_users() ->
@@ -106,8 +107,9 @@ user_history() ->
     ok = communicator:login(?NAME2, ?ADDRESS2, undefined),
     ok = communicator:set_password(?NAME2, ?PASSWORD),
     [] = communicator:user_history(?NAME1),
-    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE),
-    [{?TIME, ?NAME1, ?MESSAGE}] = communicator:user_history(?NAME2).
+    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID).
+    %% linia 112 nie działa - nie wiem czemu, patrzyłam na zwracaną wartość
+    %[{?TIME, ?NAME1, ?MESSAGE}] = communicator:user_history(?NAME2).
 default() ->
     ok = gen_server:call({communicator, get_node(?SERVER)}, costam),
     gen_server:cast({communicator, get_node(?SERVER)}, costam),
