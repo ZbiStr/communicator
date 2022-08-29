@@ -21,3 +21,4 @@ rebar3.crashdump
 *copy.erl
 messages
 *.log
+erlang_ls.config
