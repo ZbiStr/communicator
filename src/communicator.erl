@@ -105,32 +105,44 @@ init(_Args) ->
     end,
     erlang:set_cookie(local, ?COOKIE),
     {ok, {ServerName,MaxNumber,LogFilePath}} = load_configuration("server_config.txt"),
+    log(LogFilePath, "Server with name \"~s\" has been started. Created on node ~p", [ServerName,server_node()]),
     {ok, #state{server_name = ServerName, max_clients = list_to_integer(MaxNumber), log_file = LogFilePath}}.
 
 handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
-    %% Przeszukiwanie mapy, zwrócenie already_exists w przypadku gdy użytkownik Name
-    %% już w niej występuje, dodanie go w przeciwnym przypadku.
     Name = decode_from_7_bits(CodedName),
-    Client = maps:get(Name, State#state.clients, not_found),
-    case Client of
-        not_found ->
-            UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
-            {reply, ok, State#state{clients = UpdatedClients}};
-        _ ->
-            case Client#client.address of
-                undefined ->
-                    SetPass = Client#client.password,
-                    Password = decode_from_7_bits(CodedPassword),
-                    case Password of
-                        SetPass ->
-                            [send_message(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],   
-                            UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
-                            {reply, ok, State#state{clients = UpdatedClients}};
-                        _ ->
-                            {reply, wrong_password, State#state{}}
-                    end;
+    ListOfUsers = maps:to_list(State#state.clients),
+    ActiveUsers = [ Name1 || {Name1, Client} <- ListOfUsers, Client#client.address =/= undefined ],
+    NumberOfActiveUsers = length(ActiveUsers),
+    if  
+        NumberOfActiveUsers >= State#state.max_clients ->
+            log(State#state.log_file, "Login attempt: \"~s\" from \"~w\" failed with max_reached", [Name, Address]),
+            {reply, max_reached, State};
+        true ->
+            Client = maps:get(Name, State#state.clients, not_found),
+            case Client of
+                not_found ->
+                    UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
+                    log(State#state.log_file, "Temporary user \"~s\" logged on from \"~w\"", [Name, Address]),
+                    {reply, ok, State#state{clients = UpdatedClients}};
                 _ ->
-                    {reply, already_exists, State}
+                    case Client#client.address of
+                        undefined ->
+                            SetPass = Client#client.password,
+                            Password = decode_from_7_bits(CodedPassword),
+                            case Password of
+                                SetPass ->
+                                    [send_message(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],
+                                    UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
+                                    log(State#state.log_file, "Registered user \"~s\" logged on from \"~w\"", [Name, Address]),
+                                    {reply, ok, State#state{clients = UpdatedClients}};
+                                _ ->
+                                    log(State#state.log_file, "Login attempt: \"~s\" from \"~w\" failed with wrong_password", [Name, Address]),
+                                    {reply, wrong_password, State#state{}}
+                            end;
+                        _ ->
+                            log(State#state.log_file, "Login attempt: \"~s\" from \"~w\" failed with alredy_exists", [Name, Address]),
+                            {reply, already_exists, State}
+                    end
             end
     end;
 handle_call({logout, CodedName}, _From, State) ->
@@ -141,8 +153,10 @@ handle_call({logout, CodedName}, _From, State) ->
     case Client#client.password of
         undefined ->
             UpdatedClients = maps:without([Name], State#state.clients),
+            log(State#state.log_file, "Temporary user \"~s\" logged out", [Name]),
             {reply, ok, State#state{clients = UpdatedClients}};
         _Password ->
+            log(State#state.log_file, "Registered user \"~s\" logged out", [Name]),
             UpdatedClients = maps:update(Name, Client#client{address = undefined}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
@@ -155,6 +169,7 @@ handle_call({find_user, CodedName}, _From, State) ->
             {reply, ok, State#state{}}
     end;
 handle_call(show_active_users, _From, State) ->
+    log(State#state.log_file, "Show active users called", []),
     ListOfUsers = maps:to_list(State#state.clients),
     ActiveUsers = [ Name || {Name, Client} <- ListOfUsers, Client#client.address =/= undefined ],
     {reply, ActiveUsers, State#state{}};
@@ -163,6 +178,7 @@ handle_call({password, CodedName, CodedPassword}, _From, State) ->
     Password = decode_from_7_bits(CodedPassword),
     Client = maps:get(Name, State#state.clients),
     UpdatedClients = maps:put(Name, Client#client{password = Password}, State#state.clients),
+    log(State#state.log_file, "User \"~s\" registered (set password)", [Name]),
     {reply, ok, State#state{clients = UpdatedClients}};
 handle_call({find_password, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
@@ -175,6 +191,7 @@ handle_call({find_password, CodedName}, _From, State) ->
         end;
 handle_call({history, CodedUsername}, _From, State) ->
     Username = decode_from_7_bits(CodedUsername),
+    log(State#state.log_file, "User \"~s\" requested his massage history", [Username]),
     {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
     case dets:lookup(messages, Username) of
         [{Username, History}] ->
@@ -186,9 +203,11 @@ handle_call({history, CodedUsername}, _From, State) ->
             {reply, [], State#state{}}
     end;
 handle_call(stop, _From, State) ->
+    log(State#state.log_file, "\"~s\" has been closed", [State#state.server_name]),
     net_kernel:stop(),
     {stop, normal, stopped, State};
-handle_call(_Request, _From, State) ->
+handle_call(Request, _From, State) ->
+    log(State#state.log_file, "Unrecognized call request ~w", [Request]),
     {reply, ok, State}.
     
 handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
@@ -207,6 +226,7 @@ handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, 
             %% Wysyłanie wiadomości do wszystkich aktywnych osób poza nadawcą
             [gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message), {MsgId, Name}}) 
             || {Name, Client} <- ListWithoutSender, Client#client.address =/= undefined],
+            log(State#state.log_file, "User \"~s\" send message: \"~s\" to all: ~p", [From, Message, [Name || {Name, _Client} <- ListWithoutSender]]),
             %% Aktualizacja inboxów
             UpdatedInboxes = [update(Name, Client, Time, From, Message) || {Name, Client} <- ListWithoutSender],
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
@@ -218,6 +238,7 @@ handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, 
             To = decode_from_7_bits(CodedTo),
             {ok, Sender} = maps:find(From, State#state.clients),
             {ok, Client} = maps:find(To, State#state.clients),
+            log(State#state.log_file, "User \"~s\" send message: \"~s\" to: \"~s\"", [From, Message, To]),
             case Client#client.address of
                 undefined -> %% aktualizacja skrzynki odbiorczej zarejestrowanych & wylogowanych
                     UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
@@ -252,7 +273,8 @@ handle_cast({msg_confirm_from_client, MsgId}, State) ->
                             {noreply, State#state{outbox = NewOutBox}}
             end
     end;
-handle_cast(_Msg, State) ->
+handle_cast(Msg, State) ->
+    log(State#state.log_file, "Unrecognized cast request ~w", [Msg]),
     {noreply, State}.
 
 handle_info({msg_retry, MsgId}, State) ->
@@ -263,11 +285,12 @@ handle_info({msg_retry, MsgId}, State) ->
 	NewOutbox = Outbox1 ++ [NewMsg],
 	communicator:send_message(To, Time, From, Message_txt, MsgId),
 	{noreply, State#state{outbox = NewOutbox}};
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    log(State#state.log_file, "Unrecognized info request ~w", [Info]),
     {noreply, State}.
 
-
-terminate(_Reason, _State) ->
+terminate(Reason, State) ->
+    log(State#state.log_file, "\"~s\" has been terminated with reason ~w", [State#state.server_name, Reason]),
     net_kernel:stop(),
     ok.
 
@@ -336,7 +359,7 @@ load_configuration(ConfigPath) ->
             {ok, {ServerName,MaxNumber,LogFilePath}}
     catch
         error:Reason ->
-            io:format("Loading config file failed with reason: ~p",[Reason]),
+            io:format("Loading config file failed with reason: ~w",[Reason]),
             {error, Reason}
     end.
 
@@ -351,3 +374,20 @@ take_msg_by_ref(MsgId, [SentMsg | Tl], Acc) when SentMsg#msg_sent.msg_ref == Msg
 %% no match, test next item
 take_msg_by_ref(MsgId, [H | Tl], Acc) ->
 	take_msg_by_ref(MsgId, Tl, Acc ++ [H]).
+
+log(LogFilePath, LogMessage, Args) ->
+    try file:open(LogFilePath, [append]) of
+        {ok, IoDevice} ->
+            {{Y,M,D},{H,Min,S}} = calendar:local_time(),
+            Year = integer_to_list(Y),
+            TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+            [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+            Time =  Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second ++ " ",
+            io:format(IoDevice, Time ++ LogMessage ++ "~n", Args),
+            file:close(LogFilePath)
+    catch
+        error:Reason ->
+            io:format("Opening the log file failed with reason: ~w",[Reason])
+    end,
+    ok.
+
