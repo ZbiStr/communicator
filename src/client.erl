@@ -204,7 +204,7 @@ read_commands(Username) ->
 		history ->
 			History = gen_statem:call(?MODULE, history),
 			case History of
-				not_registered -> io:format("You have access to messagess history only from registered account.~n");
+				not_registered -> io:format("Only registered users have access to messagess history.~n");
 				[] -> io:format("Your history is empty.~n");
 				_ -> 
 					[io:format("~s - ~s: ~s~n", [Time, 
@@ -267,7 +267,7 @@ help() ->
 	io:format("You can use the following commands:
 logout			to log out from the server
 send			to send a message to all users
-send Username	to send a message to user called Username
+send Username		to send a message to user called Username
 users			to show the list of active users
 set_pass		to set a new password
 history			to see your message history (only for registered users)

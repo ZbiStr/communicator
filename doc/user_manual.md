@@ -12,14 +12,35 @@ Welcome to communicator erlang
 Please input your username:
 ``` 
 
-Po którym należy podać nazwę użytkownika. Serwer sprawdzi, czy użytkownik o tej nazwie nie jest 
-aktualnie zalogowany. Jeśli jest, pojawi się komunikat:
+Po którym należy podać nazwę użytkownika. 
+Jeśli nazwa jest zabezpieczona hasłem, pojawi się komunikat:
+
+```
+This user is password protected, please insert password:
+```
+
+Serwer sprawdzi, czy osiągnięta została maksymalna liczba zalogowanych użytkowników. Jeśli tak, pojawi się komunikat:
+
+```
+Maximum number of logged in clients reached
+```
+
+Jeśli nie, to serwer sprawdzi, czy użytkownik o tej nazwie nie jest aktualnie zalogowany. Jeśli jest, pojawi się komunikat:
 
 ```
 Username already logged on
 ```
-Jeśli nie, serwer sprawdzi, czy użytkownik o tej nazwie jest chroniony hasłem. Jeśli nie, nastąpi
-zalogowanie, oraz pojawi się komunikat:
+
+Jeśli nie, to w przypadku gdy wymagane było podanie hasła, serwer sprawdzi jego poprawność.
+
+W przypadku gdy podano złe hasło, pojawi się komunikat:
+
+```
+Wrong password
+```
+
+W przypadku podania poprawnego hasła lub gdy nie było ono wymagane, nastąpi zalogowanie.  
+Po zalogowaniu pojawi się komunikat
 
 ```
 Connected to server
@@ -31,42 +52,26 @@ oraz znak zachęty:
 @Username>
 ```
 
-Jeśli nazwa jest zabezpieczona hasłem, pojawi się komunikat:
-
-```
-This user is password protected, please insert password
-```
-
-Po wpisaniu hasła i naciśnięciu enter, hasło zostanie wysłane do serwera, który sprawdzi jego poprawność.
-Jeśli hasło jest poprawne, nastąpi zalogowanie
-
-W przypadku gdy podano złe hasło, pojawi się komunikat:
-
-```
-Wrong password
-Please input your username:
-```
-
 W przypadku poprawnego połączenia, można wpisać polecenie `help`. Pojawi się wtedy komunikat:
 
 ```
 You can use the following commands:
 logout                  to log out from the server
 send                    to send a message to all users
-send Username   to send a message to user called Username
+send Username           to send a message to user called Username
 users                   to show the list of active users
 set_pass                to set a new password
 history                 to see your message history (only for registered users)
 help                    to view this again
-exit
+exit                    to exit the app
 ```
 
 Po wybraniu opcji `send`  pojawi się znak zachęty:
 
 ```
-Message >
+Message>
 ```
-Po wpisaniu dowolnego ciągu znaków i naciśnięciu `enter` wiadomość zostanie przekazana do serwera, który prześle ją do wszystkich zalogowanych użytkowników. Pojawi się wtedy również komunikat:
+Po wpisaniu dowolnego dozwolonego ciągu znaków i naciśnięciu `enter` wiadomość zostanie przekazana do serwera, który prześle ją do wszystkich zalogowanych użytkowników. Pojawi się wtedy również komunikat:
 
 ```
 You sent a message to all users
@@ -75,16 +80,16 @@ You sent a message to all users
 Po wybraniu opcji `send <Username>`  pojawi się znak zachęty:
 
 ```
-Message >
+Message>
 ```
 
-Po wpisaniu dowolnego ciągu znaków i naciśnięciu `enter` wiadomość zostanie przekazana do serwera, który sprawdzi, czy dany użytkownik <Username> istnieje w systemie. Jeśli tak, to prześle ją do serwera. Pojawi się wtedy komunikat:
+Po wpisaniu dowolnego dozwolonego ciągu znaków i naciśnięciu `enter` wiadomość zostanie przekazana do serwera, który sprawdzi, czy dany użytkownik <Username> istnieje w systemie. Jeśli tak, to prześle ją do serwera. Pojawi się wtedy komunikat:
 
 ```
 You sent a message to <Username>
 ```
   
-W przypadku, gdy użytkownik <Username> istnieje i jest aktualnie zalogowany, serwer prześle do niego wiadomość. Jeśli użytkownik <Username> nie jest zalogowany, ale jest zarejestrowany (zabezpieczony hasłem), wysłana wiadomość zostanie zapisana do jego mailboxa.
+W przypadku, gdy użytkownik <Username> istnieje i jest aktualnie zalogowany, serwer prześle do niego wiadomość. Jeśli użytkownik <Username> nie jest zalogowany, ale jest zarejestrowany (zabezpieczony hasłem), wysłana wiadomość zostanie zapisana do jego mailboxa i wysłana po zalogowaniu.
   
 W przypadku, gdy użytkownik nie istnieje w systemie, pojawi się komunikat:
   
@@ -113,7 +118,7 @@ Password has been set
 Po wybraniu opcji `history`, w przypadku użytkownika niezarejestrowanego, pojawi się komunikat:
 
 ```
-You have access to messagess history only from registered account.
+Only registered users have access to messagess history.
 ```
 
 w przypadku użytkownika zarejestrowanego, wyświetlona zostanie historia wiadomości. Każda wiadomość wyświetli się w formacie:
@@ -128,15 +133,14 @@ lub, jeśli skrzynka odbiorcza jest pusta, pojawi się komunikat:
 Your history is empty.
 ```
 
-Po wybraniu opcji `logout` klient rozłączy się z serwerem i powróci do ekranu początkowego, co potwierdzi komunikat:
+Po wybraniu opcji `logout` klient rozłączy się z serwerem. Pojawi się komunikat:
 
 ```
-You have been successfully logged out
-
-Welcome to communicator erlang
-Please input your username:
+You have been successfully logged out  
 ```
 
+Nastąpi powrót do ekranu początkowego.  
+  
 Po wybraniu opcji `exit` klient wyjdzie z aplikacji, co potwierdzi komunikat:
 
 ```
@@ -173,7 +177,7 @@ Użytkownik wpisuje polecenie `set_pass`. Użytkownik wpisuje hasło, które zos
 ### history - wyświetlenie historii wiadomości
 
 Użytkownik wpisuje polecenie `history`. W przypadku użytkownika z przypisanym hasłem wyświetlona zostaje historia wiadomości. W przypadku 
-użytkownika bez przypisanego hasła wyświetlony zostanje odpowiedni komunikat.
+użytkownika bez przypisanego hasła wyświetlony zostanie odpowiedni komunikat.
 
 ### logout - wylogowanie użytkownika
 
