@@ -4,14 +4,11 @@
 -define(SERVER, erlangpol).
 -define(NAME1, "name1").
 -define(NAME2, "name2").
--define(NAME3, "name3").
 -define(PASSWORD, "password").
 -define(BADPASSWORD, "badpassword").
 -define(TIME, "12").
 -define(MESSAGE, "message").
 -define(MSGID, msg_id).
--define(MSGID1, msg_id1).
--define(MSGID2, msg_id2).
 -define(ADDRESS1, address1).
 -define(ADDRESS2, address2).
 
@@ -28,6 +25,7 @@ all_test_() ->
             fun login_with_correctpass/0,
             fun login_with_wrongpass/0,
             fun send_message/0,
+            fun retry/0,
             fun find_user/0,
             fun show_active_users/0,
             fun find_password/0,
@@ -77,25 +75,40 @@ send_message() ->
     ok = communicator:login(?NAME2, ?ADDRESS2, undefined),
     ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
     ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
-    timer:sleep(10),
+    timer:sleep(5),
     ok = communicator:confirm({?MSGID, ?NAME2}),
     ok = communicator:confirm(?MSGID),
 
     ok = communicator:set_password(?NAME2, ?PASSWORD),
-    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID1),
-    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID1),
-    timer:sleep(10),
-    ok = communicator:confirm({?MSGID1, ?NAME2}),
-    ok = communicator:confirm(?MSGID1),
+    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    timer:sleep(5),
+    ok = communicator:confirm({?MSGID, ?NAME2}),
+    ok = communicator:confirm(?MSGID),
 
     ok = communicator:logout(?NAME2),
-    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID2),
-    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID2),
+    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
     ok = communicator:login(?NAME2, ?ADDRESS2, ?PASSWORD),
-    timer:sleep(10),
-    ok = communicator:confirm({?MSGID2, ?NAME2}),
-    ok = communicator:confirm(?MSGID2),
-    ok = communicator:logout(?NAME1).
+    timer:sleep(5),
+    ok = communicator:confirm({?MSGID, ?NAME2}),
+    ok = communicator:confirm(?MSGID),
+    ok = communicator:logout(?NAME1),
+    ok = communicator:logout(?NAME2).
+
+retry() ->
+    ok = communicator:login(?NAME1, ?ADDRESS1, undefined),
+    ok = communicator:login(?NAME2, ?ADDRESS2, undefined),
+    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    timer:sleep(5),
+    {communicator, get_node(?SERVER)} ! {msg_retry, ?MSGID},
+    {communicator, get_node(?SERVER)} ! {msg_retry, {?MSGID, ?NAME2}},
+    timer:sleep(5),
+    ok = communicator:confirm({?MSGID, ?NAME2}),
+    ok = communicator:confirm(?MSGID),
+    ok = communicator:logout(?NAME1),
+    ok = communicator:logout(?NAME2).
     
 show_active_users() ->
     ok = communicator:login(?NAME1, ?ADDRESS1, undefined),
@@ -120,7 +133,7 @@ confirm_mess_and_user_history() ->
     ok = communicator:set_password(?NAME2, ?PASSWORD),
     [] = communicator:user_history(?NAME1),
     ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
-    io:fwrite("~p~n", [{?TIME, ?NAME1, ?MESSAGE}]),
+    timer:sleep(5),
     communicator:confirm(?MSGID),
     [{?TIME, ?NAME1, ?MESSAGE}] = communicator:user_history(?NAME2).
 default() ->

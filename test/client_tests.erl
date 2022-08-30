@@ -13,7 +13,6 @@
 -define(NAME3, "name3").
 -define(PASSWORD, "password").
 -define(BADPASSWORD, "badpassword").
--define(TIME, "12").
 -define(MESSAGE, "message").
 
 all_test_() ->
@@ -33,8 +32,7 @@ all_test_() ->
 			fun logout/0,
 			fun help/0,
 			fun unknown_command/0,
-			fun history/0,
-			fun send_message/0
+			fun history/0
 		]
 	}.
   
@@ -86,53 +84,62 @@ login_with_correctpass() ->
 	ok = gen_statem:call(client, {login, ?NAME1, ?PASSWORD}).
 
 login_already_exists() ->
-	gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME1, undefined}),
+	ok = gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME1, undefined}),
 	already_exists = gen_statem:call(client, {login, ?NAME1, undefined}).
 
 find_user() ->
-	gen_statem:call(client, {login, ?NAME1, undefined}),
-	_Data = gen_statem:call(client, get_name).
+	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
+	?NAME1 = gen_statem:call(client, get_name).
 
 show_active_users() ->
-	gen_statem:call(client, {login, ?NAME1, undefined}),
-	_Data = gen_statem:call(client, active_users).
+	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
+	[?NAME1] = gen_statem:call(client, active_users).
 
 send() ->
-	gen_statem:call(client, {login, ?NAME1, undefined}),
-	gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME2, ?PASSWORD}),
+	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
+	ok = gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME2, undefined}),
 	all = gen_statem:call(client, {send, [], ?MESSAGE}),
 	private = gen_statem:call(client, {send, ?NAME2, ?MESSAGE}),
+
+	{ok, _} = gen_statem:call({client, get_node(?CLIENT2)}, {set_pass, ?PASSWORD}),
+	all = gen_statem:call(client, {send, [], ?MESSAGE}),
+	private = gen_statem:call(client, {send, ?NAME2, ?MESSAGE}),
+	timer:sleep(10),
+	ok = gen_statem:call({client, get_node(?CLIENT2)}, logout),
+	timer:sleep(10),
+	all = gen_statem:call(client, {send, [], ?MESSAGE}),
+	private = gen_statem:call(client, {send, ?NAME2, ?MESSAGE}),
+
+	ok = gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME2, ?PASSWORD}),
+
 	does_not_exist = gen_statem:call(client, {send, ?NAME3, ?MESSAGE}).
 
 logout() ->
-	gen_statem:call(client, {login, ?NAME1, undefined}),
+	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
 	ok = gen_statem:call(client, logout).
 
 help() ->
-	gen_statem:call(client, {login, ?NAME1, undefined}),
+	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
 	ok = gen_statem:call(client, help).
 
 unknown_command() ->
 	unknown = gen_statem:call(client, not_a_command),
-	gen_statem:call(client, {login, ?NAME1, undefined}),
+	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
 	unknown = gen_statem:call(client, not_a_command).
 
 history() ->
-	send(),
-	gen_statem:call(client, history).
-
-send_message() ->
-	gen_statem:call(client, {login, ?NAME1, ?PASSWORD}),
-	gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME2, ?PASSWORD}),
-	CodedTime = code_to_7_bits(?TIME),
-	CodedFrom = code_to_7_bits(?NAME2),
-	CodedMessage =code_to_7_bits(?MESSAGE),
-	ok = gen_statem:cast(client, {message, CodedTime, CodedFrom, CodedMessage}).
+	communicator:clear_whole_table(),
+	ok = gen_statem:call(client, {login, ?NAME1, undefined}),
+	ok = gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME2, undefined}),
+	not_registered = gen_statem:call({client, get_node(?CLIENT2)}, history),
+	{ok, _} = gen_statem:call({client, get_node(?CLIENT2)}, {set_pass, ?PASSWORD}),
+	timer:sleep(5),
+	[] = gen_statem:call({client, get_node(?CLIENT2)}, history),
+	private = gen_statem:call(client, {send, ?NAME2, ?MESSAGE}),
+	timer:sleep(10),
+	[{_, ?NAME1, ?MESSAGE}] = gen_statem:call({client, get_node(?CLIENT2)}, history).
 
 get_node(Name) ->
 	{ok, Host} = inet:gethostname(),
 	list_to_atom(atom_to_list(Name) ++ "@" ++ Host).
 
-code_to_7_bits(Input) ->
-	Bit = <<  <<(A-32)>> || A <- Input>>,
-	<< <<Code>> || <<_A:1,Code:7>> <= Bit>>.

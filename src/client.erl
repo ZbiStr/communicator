@@ -103,13 +103,19 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 					{keep_state, NewData, {reply, From, private}}
 			end
 	end;
-logged_in({call, From}, active_users, Data) ->
-	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
+logged_in({call, From}, active_users, _Data) ->
+	ActiveUsers = communicator:show_active_users(),
+	{keep_state_and_data, {reply, From, ActiveUsers}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
 	communicator:set_password(Data#data.username, Password),
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, history, Data) ->
-	{keep_state_and_data, {reply, From, communicator:user_history(Data#data.username)}};
+	case communicator:find_password(Data#data.username) of
+		undefined ->
+			{keep_state_and_data, {reply, From, not_registered}};
+		_ ->
+			{keep_state_and_data, {reply, From, communicator:user_history(Data#data.username)}}
+	end;
 logged_in({call, From}, _, _Data) ->
 	handle_unknown(From);
 
@@ -187,12 +193,7 @@ read_commands(Username) ->
 			end,
 			read_commands(Username);
 		users ->
-			case gen_statem:call(?MODULE, active_users) of
-				{ok, _Username} ->
-					io:format("List of active users: ~p~n", [communicator:show_active_users()]);
-				_ ->
-					ok
-			end,
+			io:format("List of active users: ~p~n", [gen_statem:call(?MODULE, active_users)]),
 			read_commands(Username);
 		set_pass ->
 			PromptSetPass = "Please input desired password: ",
@@ -201,18 +202,15 @@ read_commands(Username) ->
 			io:format("Password has been set ~n"),
 			read_commands(Username);
 		history ->
-			case communicator:find_password(Username) of
-				undefined -> io:format("You have access to messagess history only from registered account.~n");
+			History = gen_statem:call(?MODULE, history),
+			case History of
+				not_registered -> io:format("You have access to messagess history only from registered account.~n");
+				[] -> io:format("Your history is empty.~n");
 				_ -> 
-					History = gen_statem:call(?MODULE, history),
-					case History of
-						[] -> io:format("Your history is empty.~n");
-						_ -> 
-							[io:format("~s - ~s: ~s~n", [Time, 
-								From, 
-								Message])
-							|| {Time, From, Message} <- History]
-					end
+					[io:format("~s - ~s: ~s~n", [Time, 
+						From, 
+						Message])
+					|| {Time, From, Message} <- History]
 			end,
 			read_commands(Username);
 		logout ->
@@ -311,9 +309,9 @@ check(Y) ->
 			94
 	end .
 
-code_to_7_bits(Input) ->
-	Bit = <<  <<(A-32)>> || A <- Input>>,
-	<< <<Code>> || <<_A:1,Code:7>> <= Bit>>.
+%code_to_7_bits(Input) ->
+%	Bit = <<  <<(A-32)>> || A <- Input>>,
+%	<< <<Code>> || <<_A:1,Code:7>> <= Bit>>.
 
 decode_from_7_bits(Input) ->
 	Bit = << <<0:1,Code:7>> || <<Code>> <= Input>>,

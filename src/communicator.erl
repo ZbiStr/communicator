@@ -65,10 +65,10 @@ send_message_to(To, Time, From, Message, MsgId) ->
     CodedTime = code_to_7_bits(Time),
     case To of
         all ->
-            gen_server:cast({?SERVER, server_node()}, {send_message, To, CodedTime, CodedFrom, CodedMessage, MsgId});
+            gen_server:cast({?SERVER, server_node()}, {send_message_to, To, CodedTime, CodedFrom, CodedMessage, MsgId});
         _ ->
             CodedTo = code_to_7_bits(To),
-            gen_server:cast({?SERVER, server_node()}, {send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId})
+            gen_server:cast({?SERVER, server_node()}, {send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId})
     end.
 
 set_password(Name, Password) ->
@@ -219,42 +219,31 @@ handle_call(Request, _From, State) ->
     log(State#state.log_file, "Unrecognized call request ~p", [Request]),
     {reply, ok, State}.
     
-handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
+handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) when CodedTo == all ->
     From = decode_from_7_bits(CodedFrom),
     Message = decode_from_7_bits(CodedMessage),
     Time = decode_from_7_bits(CodedTime),
-    case CodedTo of
-        all ->
-            {ok, Value} = maps:find(From, State#state.clients),
-            ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
-            %% Aktualizacja outboxa
-            NewOutbox = [#msg_sent{msg_ref = {MsgId, Name}, 
-            timer_ref = lists:last(tuple_to_list(timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, {MsgId, Name}}))),
-            msg = {Name, Time, From, Message}} || {Name, Client} <- ListWithoutSender,
-            Client#client.address =/= undefined],
-            UpdatedOutbox = State#state.outbox ++ NewOutbox,
-            %% Wysyłanie wiadomości do wszystkich aktywnych osób poza nadawcą
-            [gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message), {MsgId, Name}}) 
-            || {Name, Client} <- ListWithoutSender, Client#client.address =/= undefined],
-            %% Aktualizacja inboxów
-            UpdatedInboxes = [update(Name, Client, Time, From, Message, {MsgId, Name}) || {Name, Client} <- ListWithoutSender],
-            UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
-            {noreply, State#state{clients = UpdatedClients, outbox = UpdatedOutbox}};
-        _ ->
-            To = decode_from_7_bits(CodedTo),
-            {ok, Client} = maps:find(To, State#state.clients),
-            case Client#client.address of
-                undefined -> %% aktualizacja skrzynki odbiorczej zarejestrowanych & wylogowanych
-                    UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
-                    {noreply, State#state{clients = UpdatedClients}};
-                _ -> %% wysłanie wiadomości prywatnych dla zalogowanych
-                    gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message), MsgId}),
-                    %%Aktualizacja outboxa
-                    {ok, TimeRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
-                    NewOutbox = #msg_sent{msg_ref = MsgId, timer_ref = TimeRef, msg = {To, Time, From, Message}},
-                    UpdatedOutbox = State#state.outbox ++ [NewOutbox],
-                    {noreply, State#state{outbox = UpdatedOutbox}}
-            end
+    ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
+    [send_message_to(Name, Time, From, Message, {MsgId, Name}) || {Name, _Client} <- ListWithoutSender],
+    {noreply, State#state{}};
+
+handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
+    To = decode_from_7_bits(CodedTo),
+    From = decode_from_7_bits(CodedFrom),
+    Message = decode_from_7_bits(CodedMessage),
+    Time = decode_from_7_bits(CodedTime),
+    {ok, Client} = maps:find(To, State#state.clients),
+    case Client#client.address of
+        undefined -> %% aktualizacja skrzynki odbiorczej zarejestrowanych & wylogowanych
+            UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
+            {noreply, State#state{clients = UpdatedClients}};
+        _ -> %% wysłanie wiadomości prywatnych dla zalogowanych
+            gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message), MsgId}),
+            %%Aktualizacja outboxa
+            {ok, TimeRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
+            NewOutbox = #msg_sent{msg_ref = MsgId, timer_ref = TimeRef, msg = {To, Time, From, Message}},
+            UpdatedOutbox = State#state.outbox ++ [NewOutbox],
+            {noreply, State#state{outbox = UpdatedOutbox}}
     end;
 
 handle_cast({msg_confirm_from_server, To, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
@@ -275,7 +264,6 @@ handle_cast({msg_confirm_from_server, To, CodedTime, CodedFrom, CodedMessage, Ms
     {noreply, State};
 
 handle_cast({msg_confirm_from_client, MsgId}, State) ->
-    io:format("~p", [State#state.outbox]),
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, State#state.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
     log(State#state.log_file, "Message with ID ~p has been delivered", [MsgId]),
@@ -304,7 +292,7 @@ handle_info({msg_retry, MsgId}, State) ->
 	NewMsg = Message#msg_sent{timer_ref = TimerRef}, 
 	{To, Time, From, Message_txt} = Message#msg_sent.msg,
 	NewOutbox = Outbox1 ++ [NewMsg],
-	communicator:send_message_to(To, Time, From, Message_txt, MsgId),
+	send_message_to(To, Time, From, Message_txt, MsgId),
 	{noreply, State#state{outbox = NewOutbox}};
 handle_info(Info, State) ->
     log(State#state.log_file, "Unrecognized info request ~w", [Info]),
@@ -347,16 +335,6 @@ clear_whole_table() ->
     {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
     dets:delete_all_objects(Table),
     dets:close(Table).
-
-update(Name, Client, Time, From, Message, MsgId) ->
-    case Client#client.address of
-        undefined ->
-            io:format("Added ~s~n", [Name]),
-            NewInbox = Client#client.inbox ++ [{Time, From, Message, MsgId}],
-            {Name, Client#client{inbox = NewInbox}};
-        _->
-            {Name, Client}
-    end.
 
 server_node() ->
     {ok, Host} = inet:gethostname(),
