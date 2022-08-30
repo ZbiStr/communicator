@@ -14,12 +14,6 @@
 	address  :: atom(), 
 	outbox :: list()
 }).
--record(msg, {
-	from,
-	to,
-	msg_txt,
-	time
-}).
 -record(msg_sent, {
 	msg_ref, 
 	timer_ref, 

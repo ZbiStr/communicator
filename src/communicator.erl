@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([stop/0, start_link/0, logout/1, send_message/5, set_password/2, confirm/1, find_user/1, show_active_users/0, find_password/1, login/3, user_history/1, clear_whole_table/0]).
+-export([get_state/0, stop/0, start_link/0, logout/1, send_message/5, set_password/2, confirm/1, find_user/1, show_active_users/0, find_password/1, login/3, user_history/1, clear_whole_table/0]).
 %% CALLBACK
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -57,12 +57,18 @@ send_message(To, Time, From, Message, MsgId) ->
     CodedFrom = code_to_7_bits(From),
     CodedMessage = code_to_7_bits(Message),
     CodedTime = code_to_7_bits(Time),
+    gen_server:cast({?SERVER, server_node()}, {msg_confirm_from_server, To, CodedTime, CodedFrom, CodedMessage, MsgId}).
+
+send_message_to(To, Time, From, Message, MsgId) ->
+    CodedFrom = code_to_7_bits(From),
+    CodedMessage = code_to_7_bits(Message),
+    CodedTime = code_to_7_bits(Time),
     case To of
         all ->
-            gen_server:cast({?SERVER, server_node()},{send_message, To, CodedTime, CodedFrom, CodedMessage, MsgId});
+            gen_server:cast({?SERVER, server_node()}, {send_message, To, CodedTime, CodedFrom, CodedMessage, MsgId});
         _ ->
             CodedTo = code_to_7_bits(To),
-            gen_server:cast({?SERVER, server_node()},{send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId})
+            gen_server:cast({?SERVER, server_node()}, {send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId})
     end.
 
 set_password(Name, Password) ->
@@ -79,20 +85,21 @@ show_active_users() ->
 
 find_password(Name) ->
     CodedName = code_to_7_bits(Name),
-    gen_server:call({?SERVER, server_node()},{find_password, CodedName}).
+    gen_server:call({?SERVER, server_node()}, {find_password, CodedName}).
 
 user_history(Username) ->
     CodedUsername = code_to_7_bits(Username),
-    History = gen_server:call({?SERVER, server_node()},{history, CodedUsername}),
+    History = gen_server:call({?SERVER, server_node()}, {history, CodedUsername}),
     [{decode_from_7_bits(Time),
     decode_from_7_bits(From), 
     decode_from_7_bits(Message)}
     || {Time, From, Message} <- History].
 
 confirm(MsgId) ->
-    gen_server:cast({?SERVER, server_node()},{msg_confirm_from_client, MsgId}).
+    gen_server:cast({?SERVER, server_node()}, {msg_confirm_from_client, MsgId}).
 
-
+get_state() ->
+    gen_server:call({?SERVER, server_node()}, get_state).
 % ================================================================================
 % CALLBACK
 % ================================================================================
@@ -131,7 +138,7 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                             Password = decode_from_7_bits(CodedPassword),
                             case Password of
                                 SetPass ->
-                                    [send_message(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],
+                                    [send_message_to(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],
                                     UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
                                     log(State#state.log_file, "Registered user \"~s\" logged on from \"~w\"", [Name, Address]),
                                     {reply, ok, State#state{clients = UpdatedClients}};
@@ -206,56 +213,69 @@ handle_call(stop, _From, State) ->
     log(State#state.log_file, "\"~s\" has been closed", [State#state.server_name]),
     net_kernel:stop(),
     {stop, normal, stopped, State};
+handle_call(get_state, _From, State) ->
+    {reply, State, State};
 handle_call(Request, _From, State) ->
-    log(State#state.log_file, "Unrecognized call request ~w", [Request]),
+    log(State#state.log_file, "Unrecognized call request ~p", [Request]),
     {reply, ok, State}.
     
 handle_cast({send_message, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
     From = decode_from_7_bits(CodedFrom),
     Message = decode_from_7_bits(CodedMessage),
     Time = decode_from_7_bits(CodedTime),
-    {ok, TimeRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
     case CodedTo of
         all ->
             {ok, Value} = maps:find(From, State#state.clients),
             ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
             %% Aktualizacja outboxa
-            NewOutbox = [#msg_sent{msg_ref = {MsgId, Name}, timer_ref = TimeRef, msg = {Name, Time, From, Message}} || {Name, Client} <- ListWithoutSender,
+            NewOutbox = [#msg_sent{msg_ref = {MsgId, Name}, 
+            timer_ref = lists:last(tuple_to_list(timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, {MsgId, Name}}))),
+            msg = {Name, Time, From, Message}} || {Name, Client} <- ListWithoutSender,
             Client#client.address =/= undefined],
             UpdatedOutbox = State#state.outbox ++ NewOutbox,
             %% Wysyłanie wiadomości do wszystkich aktywnych osób poza nadawcą
             [gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message), {MsgId, Name}}) 
             || {Name, Client} <- ListWithoutSender, Client#client.address =/= undefined],
-            log(State#state.log_file, "User \"~s\" send message: \"~s\" to all: ~p", [From, Message, [Name || {Name, _Client} <- ListWithoutSender]]),
             %% Aktualizacja inboxów
-            UpdatedInboxes = [update(Name, Client, Time, From, Message) || {Name, Client} <- ListWithoutSender],
+            UpdatedInboxes = [update(Name, Client, Time, From, Message, {MsgId, Name}) || {Name, Client} <- ListWithoutSender],
             UpdatedClients = maps:put(From, Value, maps:from_list(UpdatedInboxes)),
-            %% Potwierdzenie odebrania wiadomości przez serwer
-            {ok, Sender} = maps:find(From, State#state.clients),
-            gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
             {noreply, State#state{clients = UpdatedClients, outbox = UpdatedOutbox}};
         _ ->
             To = decode_from_7_bits(CodedTo),
-            {ok, Sender} = maps:find(From, State#state.clients),
             {ok, Client} = maps:find(To, State#state.clients),
-            log(State#state.log_file, "User \"~s\" send message: \"~s\" to: \"~s\"", [From, Message, To]),
             case Client#client.address of
                 undefined -> %% aktualizacja skrzynki odbiorczej zarejestrowanych & wylogowanych
                     UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
-                    gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
                     {noreply, State#state{clients = UpdatedClients}};
                 _ -> %% wysłanie wiadomości prywatnych dla zalogowanych
                     gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message), MsgId}),
                     %%Aktualizacja outboxa
+                    {ok, TimeRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
                     NewOutbox = #msg_sent{msg_ref = MsgId, timer_ref = TimeRef, msg = {To, Time, From, Message}},
                     UpdatedOutbox = State#state.outbox ++ [NewOutbox],
-                    %% Potwierdzenie odebrania wiadomości przez serwer
-                    gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
                     {noreply, State#state{outbox = UpdatedOutbox}}
-            end  
+            end
     end;
 
+handle_cast({msg_confirm_from_server, To, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
+    From = decode_from_7_bits(CodedFrom),
+    Message = decode_from_7_bits(CodedMessage),
+    Time = decode_from_7_bits(CodedTime),
+    send_message_to(To, Time, From, Message, MsgId),
+    case To of
+        all ->
+            ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)),
+            log(State#state.log_file, "User \"~s\" send message: \"~s\" with MasgId: ~p to all: ~p", [From, Message, MsgId, [Name || {Name, _Client} <- ListWithoutSender]]);
+        _->
+            log(State#state.log_file, "User \"~s\" send message: \"~s\" with MasgId: ~p to: \"~s\"", [From, Message, MsgId, To])
+    end,
+    %% Potwierdzenie odebrania wiadomości przez serwer
+    {ok, Sender} = maps:find(From, State#state.clients),
+    gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
+    {noreply, State};
+
 handle_cast({msg_confirm_from_client, MsgId}, State) ->
+    io:format("~p", [State#state.outbox]),
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, State#state.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
     log(State#state.log_file, "Message with ID ~p has been delivered", [MsgId]),
@@ -284,14 +304,14 @@ handle_info({msg_retry, MsgId}, State) ->
 	NewMsg = Message#msg_sent{timer_ref = TimerRef}, 
 	{To, Time, From, Message_txt} = Message#msg_sent.msg,
 	NewOutbox = Outbox1 ++ [NewMsg],
-	communicator:send_message(To, Time, From, Message_txt, MsgId),
+	communicator:send_message_to(To, Time, From, Message_txt, MsgId),
 	{noreply, State#state{outbox = NewOutbox}};
 handle_info(Info, State) ->
     log(State#state.log_file, "Unrecognized info request ~w", [Info]),
     {noreply, State}.
 
 terminate(Reason, State) ->
-    log(State#state.log_file, "\"~s\" has been terminated with reason ~w", [State#state.server_name, Reason]),
+    log(State#state.log_file, "\"~s\" has been terminated with reason ~p", [State#state.server_name, Reason]),
     net_kernel:stop(),
     ok.
 
@@ -328,12 +348,16 @@ clear_whole_table() ->
     dets:delete_all_objects(Table),
     dets:close(Table).
 
-update(Name, Client, Time, From, Message) ->
+update(Name, Client, Time, From, Message, MsgId) ->
     case Client#client.address of
-        undefined -> {Name, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message}]}};
-        _         -> {Name, Client#client{}}
+        undefined ->
+            io:format("Added ~s~n", [Name]),
+            NewInbox = Client#client.inbox ++ [{Time, From, Message, MsgId}],
+            {Name, Client#client{inbox = NewInbox}};
+        _->
+            {Name, Client}
     end.
-                
+
 server_node() ->
     {ok, Host} = inet:gethostname(),
     list_to_atom(atom_to_list(?NODE_NAME) ++ "@" ++ Host).
@@ -391,4 +415,3 @@ log(LogFilePath, LogMessage, Args) ->
             io:format("Opening the log file failed with reason: ~w",[Reason])
     end,
     ok.
-

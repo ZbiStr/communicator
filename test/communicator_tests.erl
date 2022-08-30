@@ -10,6 +10,8 @@
 -define(TIME, "12").
 -define(MESSAGE, "message").
 -define(MSGID, msg_id).
+-define(MSGID1, msg_id1).
+-define(MSGID2, msg_id2).
 -define(ADDRESS1, address1).
 -define(ADDRESS2, address2).
 
@@ -29,7 +31,7 @@ all_test_() ->
             fun find_user/0,
             fun show_active_users/0,
             fun find_password/0,
-            fun user_history/0,
+            fun confirm_mess_and_user_history/0,
             fun default/0
         ]
     }.
@@ -75,14 +77,24 @@ send_message() ->
     ok = communicator:login(?NAME2, ?ADDRESS2, undefined),
     ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
     ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    timer:sleep(10),
+    ok = communicator:confirm({?MSGID, ?NAME2}),
+    ok = communicator:confirm(?MSGID),
 
     ok = communicator:set_password(?NAME2, ?PASSWORD),
-    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
-    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID1),
+    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID1),
+    timer:sleep(10),
+    ok = communicator:confirm({?MSGID1, ?NAME2}),
+    ok = communicator:confirm(?MSGID1),
 
     ok = communicator:logout(?NAME2),
-    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
-    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID2),
+    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID2),
+    ok = communicator:login(?NAME2, ?ADDRESS2, ?PASSWORD),
+    timer:sleep(10),
+    ok = communicator:confirm({?MSGID2, ?NAME2}),
+    ok = communicator:confirm(?MSGID2),
     ok = communicator:logout(?NAME1).
     
 show_active_users() ->
@@ -101,15 +113,16 @@ find_user() ->
     ok = communicator:find_user(?NAME1),
     does_not_exist = communicator:find_user(?NAME2).
 
-user_history() ->
+confirm_mess_and_user_history() ->
     ok = communicator:clear_whole_table(),
     ok = communicator:login(?NAME1, ?ADDRESS1, undefined),
     ok = communicator:login(?NAME2, ?ADDRESS2, undefined),
     ok = communicator:set_password(?NAME2, ?PASSWORD),
     [] = communicator:user_history(?NAME1),
-    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID).
-    %% linia 112 nie działa - nie wiem czemu, patrzyłam na zwracaną wartość
-    %[{?TIME, ?NAME1, ?MESSAGE}] = communicator:user_history(?NAME2).
+    ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    io:fwrite("~p~n", [{?TIME, ?NAME1, ?MESSAGE}]),
+    communicator:confirm(?MSGID),
+    [{?TIME, ?NAME1, ?MESSAGE}] = communicator:user_history(?NAME2).
 default() ->
     ok = gen_server:call({communicator, get_node(?SERVER)}, costam),
     gen_server:cast({communicator, get_node(?SERVER)}, costam),

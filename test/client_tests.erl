@@ -119,8 +119,7 @@ unknown_command() ->
 
 history() ->
 	send(),
-	CodedName = code_to_7_bits(?NAME2),
-	gen_statem:call(client, {history, CodedName}).
+	gen_statem:call(client, history).
 
 send_message() ->
 	gen_statem:call(client, {login, ?NAME1, ?PASSWORD}),
