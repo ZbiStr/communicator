@@ -16,29 +16,27 @@ Poniżej znajduje się opis wysyłanych komunikatów.
 sequenceDiagram
 Klient ->> Serwer: login(Username, Address, Password)
 Serwer ->> Serwer: sprawdzenie czy użytkownik posiada hasło
-alt success
+alt sukces
 Serwer ->> Klient: ok
-else error
+else niepoprawne hasło
 Serwer ->> Klient: wrong_password
-else already exists
+else użytkownik już istnieje
 Serwer ->> Klient: already_exists
+else maksymalna liczba użytkowników
+Serwer ->> Klient: max_reached
 end
 ```
 
-Klient wysyła do serwera wiadomość w postaci login(Username, Address, Password). Jeżeli zapytanie zostało poprawnie przetworzne, a użytkownik nie posiada hasła serwer odpowiada "ok". Jeżeli użytkownik o podanej nazwie już istnieje serwer odpowie "already_exists". W przypadku kiedy użytkownik posiada hasło, będzie musiał je wpisać zaraz po loginie. Jeżeli hasło będzie poprawne serwer odpowie "ok". Jeśli hasło będzie niepoprawne, serwer odpowie "wrong_password".
+Klient wywołuje funkcję serwera w postaci login(Username, Address, Password). Jeżeli zapytanie zostało poprawnie przetworzone, serwer odpowiada "ok". Jeżeli użytkownik o podanej nazwie już istnieje serwer odpowie "already_exists". Jeśli hasło będzie niepoprawne, serwer odpowie "wrong_password". Jeśli zostanie osiągnięta maksymalna liczba użytkowników serwer odpowie "max_reached".
 
 ### logout
 
 ```mermaid
 sequenceDiagram
 Klient ->> Serwer: logout(Username)
-alt success
 Serwer ->> Klient: ok
-else error
-Serwer ->> Klient: does_not_exist
-end
 ```
-Klient wysyła do serwera wiadomość w postaci logout(Username). Jeżeli zapytanie zostało poprawnie przetworzne, serwer odpowiada "ok". Jeżeli nastąpił błąd to serwer odpowiada "does_not_exist".
+Klient wywołuje funkcję serwera w postaci logout(Username). Jeżeli zapytanie zostało poprawnie przetworzne, serwer odpowiada "ok".
 
 ### send
 
@@ -47,31 +45,40 @@ sequenceDiagram
 participant Klient1
 participant Serwer
 note right of Klient2: ...
-Klient1 ->> Serwer: send_message(From, To, Message)
-Serwer ->> Serwer: zapisanie wiadomości
+Klient1 ->> Serwer: send_message(all, Time, From, Message, MsgId)
 par Serwer to Klient2
-Serwer->> Klient2: {From, Message}
+Serwer->> Klient2: {Time, From, Message, {MsgId, Klient2}}
+Klient2 ->> Serwer: {msg_confirm_from_client, {MsgId, Klient2}}
 and Serwer to KlientN
-Serwer->>KlientN: {From, Message}
+Serwer->>KlientN: {Time, From, Message, {MsgId, KlientN}}
+KlientN ->> Serwer: {msg_confirm_from_client, {MsgId, KlientN}}
 end
+Serwer ->> Klient1: {msg_confirm_from_server, MsgId}
 note right of Klient2: ...
 ```
-Klient wysyła do serwera wiadomość w postaci send_message(From, To, Message). Jeżeli zapytanie zostało poprawnie przetworzne, serwer wysyła wiadomość do wszystkich zalogowanych użytkowników w postaci {From, Message}.
 
-### send Username
+Klient wywołuje funkcję serwera w postaci send_message(all, Time, From, Message, MsgId). Jeżeli zapytanie zostało poprawnie przetworzne, serwer wysyła wiadomość do wszystkich zalogowanych użytkowników w postaci {Time, From, Message, {MsgId, KlientN}}.
+
+### send <Username>
 
 ```mermaid
 sequenceDiagram
-Klient ->> Serwer: send_message(From, Username, Message)
-Serwer ->> Serwer: zapisanie wiadomości
-Serwer ->> Serwer: wyszukanie użytkownika
-alt success
-Serwer ->> Username: {From, Message}
-else error
-Serwer ->> Klient: does_not_exist
+Klient1 ->> Serwer: wyszukanie użytkownika
+alt sukces
+Klient1 ->> Serwer: send_message(Username, Time, From, Message, MsgId)
+Serwer ->> Klient2: {Time, From, Message, MsgId}
+par
+Klient2->> Serwer: {msg_confirm_from_client, MsgId}
+and
+Serwer ->> Klient1: {msg_confirm_from_server, MsgId}
 end
+else błąd
+Serwer ->> Klient1: does_not_exist
+end
+
 ```
-Klient wysyła do serwera wiadomość w postaci send_message(From, Username, Message). Jeżeli zapytanie zostało poprawnie przetworzne, serwer wysyła wiadomość do użytkownika {From, Message}. Jeżeli nie ma takiego użytwnika serwer odpowiada "does_not_exist".
+
+Klient1 pyta serwer, czy dany użytkownik istnieje. Jeśli tak, to wywołuje funkcję serwera w postaci send_message(Username, Time, From, Message, MsgId). Serwer przekazuje wiadomość do Klient2 w postaci {Time, From, Message, MsgId}, otrzymuje potwierdzenie otrzymania wiadomości od Klient2 w postaci {msg_confirm_from_client, MsgId}. Klient1 otrzymuje potwierdzenie odebrania wiadomości od serwera w postaci {msg_confirm_from_server, MsgId}. Jeżeli nie ma takiego użytwnika serwer odpowiada "does_not_exist".
 
 ### users
 
@@ -80,7 +87,7 @@ sequenceDiagram
 Klient ->> Serwer: show_active_users() 
 Serwer ->> Klient: [ActiveUsers]
 ```
-Klient wysyła do serwera wiadomość w postaci show_active_users(). W odpowiedzi serwer wysyła [ActiveUsers].
+Klient wywołuje funkcję serwera w postaci show_active_users(). W odpowiedzi serwer wysyła [ActiveUsers].
 
 ### set_pass
 ```mermaid
@@ -88,6 +95,18 @@ sequenceDiagram
 Klient ->> Serwer: set_password(Name, Password)  
 Serwer ->> Klient: ok
 ```
-Klient wysyła do serwera wiadomość w postaci set_password(Name, Password). W odpowiedzi serwer wysyła "ok".
+Klient wywołuje funkcję serwera w postaci set_password(Name, Password). W odpowiedzi serwer wysyła "ok".
+
+### history
+
+```mermaid
+sequenceDiagram
+Klient ->> Serwer: sprawdzenie czy użytkownik jest zarejestrowany
+alt sukces
+Klient ->> Serwer: user_history(Username) 
+Serwer ->> Klient: [{Time, From, Message},...]  
+end
+```
+Klient wywołuje funkcję serwera w postaci user_history(Username). W odpowiedzi serwer wysyła listę zapisanych wiadomości w postaci [{Time, From, Message},...].
 
 
