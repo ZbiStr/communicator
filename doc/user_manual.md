@@ -2,6 +2,7 @@
 # Instrukcja użytkownika
 
 Niniejszy dokument zawiera instrukcję użytkownika dla klienta komunikatora internetowego.
+> **Uwaga:** Jedyne dozwolone znaki to znaki drukowane ASCII.
 
 ## Opis interfejsu użytkownika
 
