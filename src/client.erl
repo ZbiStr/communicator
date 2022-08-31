@@ -290,16 +290,17 @@ read(Prompt) ->
 	% 32 to 126
 	Input = string:trim(io:get_line(Prompt), trailing, [$\n]),
 	Check = [32 || _<- Input],
+	EmptyPrompt = [32 || _<- Prompt],
 	Output = [check(Y) || Y <- Input],
 	case Output of
 		Check ->
 			Input;
 		_ ->
-			io:format("~s~n", [Output]),
+			io:format("~s~n", [EmptyPrompt ++ Output]),
 			io:format("Wrong character at indicated position~n"),
 			io:format("Try again~n"),
 			read(Prompt)
-		end.
+	end.
 
 check(Y) ->
 	if
