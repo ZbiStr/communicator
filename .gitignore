@@ -19,3 +19,6 @@ rebar3.crashdump
 *~
 *.lock
 *copy.erl
+messages
+*.log
+erlang_ls.config

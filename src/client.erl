@@ -2,192 +2,281 @@
 -behaviour(gen_statem).
 
 %% API
--export([stop/1, start_link/1, start/0]).
+-export([start/0]).
 %% CALLBACKS
--export([init/1, callback_mode/0, handle_event/4, terminate/3]).
+-export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
 -define(COOKIE, ciasteczko).
+-define(MSG_DELIVERY_TIME, 5000).
+
+-record(data, {
+	username = "" :: string(),
+	address  :: atom(), 
+	outbox :: list()
+}).
+-record(msg_sent, {
+	msg_ref, 
+	timer_ref, 
+	msg
+}).
 
 
 % ================================================================================
 % API
 % ================================================================================
 
-stop(Username) ->
-	gen_statem:stop({?MODULE, client_node(Username)}).
-
-start_link(Username) ->
-	gen_statem:start_link({local, ?MODULE}, ?MODULE, [Username], []).
 
 start() ->
-	start_node(),
-	erlang:set_cookie(local, ?COOKIE),
+	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []),
 	greet(),
-	help_logged_out(),
-	parse_logged_out().
+	Username = login(),
+	read_commands(Username).
 
 % ================================================================================
 % CALLBACKS
 % ================================================================================
 
 
-init([Username]) ->
-	net_kernel:start(list_to_atom(Username), #{name_domain => shortnames}),
+init([]) ->
+	Address = case node() of
+        'nonode@nohost' ->
+            start_node();
+        Node ->
+            Node
+    end,
 	erlang:set_cookie(local, ?COOKIE),
-	{ok, state, [Username]}.
+	{ok, logged_out, #data{address = Address, outbox = []}}.
 
-%% state_functions | handle_event_function | [_, state_enter].
 callback_mode() ->
-	handle_event_function.
+	state_functions.
 
-handle_event(enter, _OldState, _State, _Data) ->
-	keep_state_and_data;
-handle_event(cast, {message, From, Message}, _State, _Data) ->                                   
-    io:format("From ~p: ~p~n", [From, Message]),                                  
+logged_out({call, From}, {login, Username, Password}, Data) ->
+	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
+		ok ->
+			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
+			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}};
+		Reply ->
+			{keep_state_and_data, {reply, From, Reply}}
+	end;
+logged_out({call, From}, _, _Data) ->
+	handle_unknown(From).
+
+logged_in({call, From}, logout, Data) ->
+	case communicator:logout(Data#data.username) of
+		ok ->
+			{next_state, logged_out, Data#data{username = ""}, {reply, From, ok}};
+		_ ->
+			% that would make no sense but it can stay in for now
+			{keep_state_and_data, {reply, From, does_not_exist}}
+	end;
+logged_in({call, From}, get_name, Data) ->
+	{keep_state_and_data, {reply, From, Data#data.username}};
+logged_in({call, From}, help, _Data) ->
+	help(),
+	{keep_state_and_data, {reply, From, ok}};
+logged_in({call, From}, {send, To, Message}, Data) ->
+	{{Y,M,D},{H,Min,S}} = calendar:local_time(),
+	Year = integer_to_list(Y),
+    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+    Time =  Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second,
+	case To of 
+		[] ->
+			MsgId = make_ref(),
+			{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
+			MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, To, Message}},
+			NewOutbox = Data#data.outbox ++ [MsgSent],
+			NewData = Data#data{outbox = NewOutbox},
+			communicator:send_message(all, Time, Data#data.username, Message, MsgId),
+			{keep_state, NewData, {reply, From, all}};
+		_ ->
+			case communicator:find_user(To) of
+				does_not_exist ->
+					{keep_state_and_data, {reply, From, does_not_exist}};
+				ok ->
+					MsgId = make_ref(),
+					{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
+					MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, To, Message}},
+					NewOutbox = Data#data.outbox ++ [MsgSent],
+					NewData = Data#data{outbox = NewOutbox},
+					communicator:send_message(To, Time, Data#data.username, Message, MsgId),
+					{keep_state, NewData, {reply, From, private}}
+			end
+	end;
+logged_in({call, From}, active_users, _Data) ->
+	ActiveUsers = communicator:show_active_users(),
+	{keep_state_and_data, {reply, From, ActiveUsers}};
+logged_in({call, From}, {set_pass, Password}, Data) ->
+	communicator:set_password(Data#data.username, Password),
+	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
+logged_in({call, From}, history, Data) ->
+	case communicator:find_password(Data#data.username) of
+		undefined ->
+			{keep_state_and_data, {reply, From, not_registered}};
+		_ ->
+			{keep_state_and_data, {reply, From, communicator:user_history(Data#data.username)}}
+	end;
+logged_in({call, From}, _, _Data) ->
+	handle_unknown(From);
+
+%%confirmation from server that message was received 
+logged_in(cast, {msg_confirm_from_server, MsgId}, Data) ->
+	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, Data#data.outbox),
+	timer:cancel(MsgSent#msg_sent.timer_ref),
+	{keep_state, Data#data{outbox = NewOutBox}};
+
+%%when server doesn't confirm in the time defined in the macro MSG_DELIVERY_TIMER
+logged_in(timeout, {msg_retry, MsgRef}, Data) ->
+	{Message, Outbox1} = take_msg_by_ref(MsgRef, Data#data.outbox),
+	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgRef}),
+	NewMsg = Message#msg_sent{timer_ref = TimerRef}, 
+	{Time, To, Message_txt} = Message#msg_sent.msg,
+	NewOutbox = Outbox1 ++ [NewMsg],
+	NewData = Data#data{outbox = NewOutbox},
+	communicator:send_message(To, Time, Data#data.username, Message_txt, MsgRef),
+	{keep_state, NewData};
+logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage, MsgId}, _Data) ->
+	From = decode_from_7_bits(CodedFrom),
+	Message = decode_from_7_bits(CodedMessage),
+	Time = decode_from_7_bits(CodedTime),
+	io:format("~s - ~s: ~s~n", [Time, From, Message]),
+	communicator:confirm(MsgId),
     keep_state_and_data;
-handle_event(_EventType, _EventContent, _State, _Data) ->
+logged_in(EventType, EventContent, Data) ->
+	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),
 	keep_state_and_data.
 
-terminate(_Reason, _State, [Username] = _Data) ->
-	communicator:logout(Username),
+handle_unknown(From) ->
+	io:format("Not a viable command~n"),
+	{keep_state_and_data, {reply, From, unknown}}.
+
+terminate(_Reason, _State, Data) ->
+	case Data#data.username of
+		"" ->
+			ok;
+		Username ->
+			try communicator:logout(Username)
+			catch
+				exit:_ ->
+					ok
+			end
+	end,
 	net_kernel:stop().
+
 
 % ================================================================================
 % INTERNAL
 % ================================================================================
 
-parse_logged_out() ->
-	{ok, [Command]} = io:fread("", "~a"),
-	case Command of
-		help ->
-			help_logged_out(),
-			parse_logged_out();
-		login ->
-			Username = login(),
-			io:format("You have been successfully logged in!~n~n"),
-			help_logged_in(),
-			parse_logged_in(Username);
-		exit ->
-			net_kernel:stop(),
-			io:format("See you later!~n");
-		_ ->
-			io:format("Not available command.~n"),
-			parse_logged_out()
-	end.
 
-parse_logged_in(Username) ->
-	{ok, [Command]} = io:fread("", "~a"),
+read_commands(Username) ->
+	PromptReadCommands = "@" ++ Username ++ "> ",
+	PromptMessage = "Message> ",
+	Input = read(PromptReadCommands),
+	[Command, Opts] =
+		[list_to_atom(string:trim(Token)) || Token <- string:split(Input ++ " ", " ")],
 	case Command of
-		help ->
-			help_logged_in(),
-			parse_logged_in(Username);
-		logout ->
-			case logout(Username) of
+		exit ->
+			gen_statem:stop(?MODULE),
+			exit(normal);
+		send ->
+			To = atom_to_list(Opts),
+			Message = read(PromptMessage),
+			Status = gen_statem:call(?MODULE, {send, To, Message}),
+			case Status of 
+				all->
+						io:format("You sent a message to all users~n");
 				does_not_exist ->
-					parse_logged_in(Username);
-				ok ->
-					start()
-			end;
-		message ->
-			{ok, [Option]} = io:fread("", "~s"),
-			case Option of 
-				"all" ->
-					io:format("Chat with all users started. Type quit to go back to the main menu~n"),
-					chat(Username, all),
-					help_logged_in(),
-					parse_logged_in(Username);
-				_ ->
-					io:format("Not available command.~n"),
-					parse_logged_in(Username)
-					%% case communicator:find_user(To) of 						<--- DO PRYWATNYCH
-					%%  	does_not_exist ->
-					%%			io:format("There is no such user!~n"),
-					%%			help_logged_in(),
-					%%			parse_logged_in(Username);
-					%%		ok ->
-					%%			io:format("Private chat with ~p started. Type quit to go back to the main menu~n", [To]),
-					%%			chat(Username, To),
-					%%			help_logged_in(),
-					%%			parse_logged_in(Username)
-					%%	end
-			end;
-		exit ->
-			logout(Username),
-			io:format("See you later!~n");
+						io:format("There is no such user!~n");
+				private ->
+						io:format("You sent a message to ~p~n", [To])
+			end,
+			read_commands(Username);
+		users ->
+			io:format("List of active users: ~p~n", [gen_statem:call(?MODULE, active_users)]),
+			read_commands(Username);
+		set_pass ->
+			PromptSetPass = "Please input desired password: ",
+			Password = read(PromptSetPass),
+			gen_statem:call(?MODULE, {set_pass, Password}),
+			io:format("Password has been set ~n"),
+			read_commands(Username);
+		history ->
+			History = gen_statem:call(?MODULE, history),
+			case History of
+				not_registered -> io:format("Only registered users have access to messagess history.~n");
+				[] -> io:format("Your history is empty.~n");
+				_ -> 
+					[io:format("~s - ~s: ~s~n", [Time, 
+						From, 
+						Message])
+					|| {Time, From, Message} <- History]
+			end,
+			read_commands(Username);
+		logout ->
+			logout(),
+			greet(),
+			NewName = login(),
+			read_commands(NewName);
 		_ ->
-			io:format("Not available command.~n"),
-			parse_logged_in(Username)
+			gen_statem:call(?MODULE, Command),
+			read_commands(Username)
 	end.
 
-login() -> 
-	{ok, [Username]} = io:fread("Please input your username: ", "~s"),
-	case communicator:login(Username, {?MODULE, client_node(Username)}) of
+login() ->
+	Prompt = "Please input your username: ",
+	Username = read(Prompt),
+	Inputpass = get_pass(Username),
+	Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
+	case Reply of
+		max_reached ->
+			io:format("Maximum number of logged in clients reached~n"),
+			login();
 		already_exists ->
-			io:fwrite("Username already logged on~n"),
+			io:format("Username already logged on~n"),
+			login();
+		wrong_password ->
+			io:format("Wrong password, try again~n"),
 			login();
 		ok ->
-			net_kernel:stop(),
-			start_link(Username),
-			io:format("~nHello ~s!~n", [Username]),
 			Username
 	end.
-
-logout(Username) ->
-	Logout = communicator:logout(Username),
-	case Logout of
-		does_not_exist ->
-			io:format("This username doesn't exist~n");
-		ok ->
-			stop(Username),
-			io:format("You have been successfully logged out~n")
-	end,
-	Logout.
-
-chat(From, To) ->
-	Message = string:strip(io:get_line("> "), right, $\n),
-	case Message of
-		"quit" ->
-			{ok, [Y_N]} = io:fread("Do you want to quit? (y/n) ", "~a"),
-			%% ten case jest na wypadek gdyby ktoś chciał wysłać komuś słowo "quit",
-			%% a jakoś trzeba dać możliwość wyjścia z czatu.
-			case Y_N of
-				y -> io:format("Chat ended.~n");
-				n -> 
-					communicator:send_message(From, To, Message),
-					chat(From, To)
-				end;
+get_pass(Username) ->
+	Findpass = communicator:find_password(Username),
+	case Findpass of
+		undefined ->
+			undefined;
 		_ ->
-			communicator:send_message(From, To, Message),
-			chat(From, To)
+			io:format("This user is password protected~n"),
+			PromptP = "Please input your password: ",
+			read(PromptP)
+	end.
+logout() ->
+	Reply = gen_statem:call(?MODULE, logout),
+	case Reply of
+		ok ->
+			io:format("You have been successfully logged out~n");
+		_ ->
+			io:format("Something went wrong~n")
 	end.
 
 greet() ->
-	io:format("
-////////////////////////////////////////////
-/////    Glad to see you in our app!   /////
-////////////////////////////////////////////~n").
+	io:format("~nWelcome to communicator erlang~n").
 
-help_logged_out() ->
-	io:format("You can use the following commands:
-login     to log in to the server
-help      to view this again
-exit      to exit the app~n").
-
-help_logged_in() ->
+help() ->
 	io:format("You can use the following commands:
 logout			to log out from the server
-message all		to send message to all users
+send			to send a message to all users
+send Username		to send a message to user called Username
+users			to show the list of active users
+set_pass		to set a new password
+history			to see your message history (only for registered users)
 help			to view this again
 exit			to exit the app~n").
-%% DO PRYWATNYCH: message Username	to start private chat with user named Username
-
-client_node(Username) ->
-	{ok, Host} = inet:gethostname(),
-	list_to_atom(Username ++ "@" ++ Host).
 
 start_node() ->
 	% random lowercase letters
-	Name = [96 + rand:uniform(26) || _ <- lists:seq(1,8)],
+	Name = [96 + rand:uniform(26) || _ <- lists:seq(1,9)],
 	try net_kernel:start(list_to_atom(Name), #{name_domain => shortnames}) of
 		{ok, _} ->
 			{ok, Host} = inet:gethostname(),
@@ -196,3 +285,46 @@ start_node() ->
 		error:{already_started, _Pid} ->
 			start_node()
 	end.
+
+read(Prompt) ->
+	% 32 to 126
+	Input = string:trim(io:get_line(Prompt), trailing, [$\n]),
+	Check = [32 || _<- Input],
+	EmptyPrompt = [32 || _<- Prompt],
+	Output = [check(Y) || Y <- Input],
+	case Output of
+		Check ->
+			Input;
+		_ ->
+			io:format("~s~n", [EmptyPrompt ++ Output]),
+			io:format("Wrong character at indicated position~n"),
+			io:format("Try again~n"),
+			read(Prompt)
+	end.
+
+check(Y) ->
+	if
+		Y >= 32 andalso Y =< 126 ->
+			32;
+		true ->
+			94
+	end .
+
+%code_to_7_bits(Input) ->
+%	Bit = <<  <<(A-32)>> || A <- Input>>,
+%	<< <<Code>> || <<_A:1,Code:7>> <= Bit>>.
+
+decode_from_7_bits(Input) ->
+	Bit = << <<0:1,Code:7>> || <<Code>> <= Input>>,
+	[(A+32) || <<A:8>> <= Bit].
+
+take_msg_by_ref(MsgId, Outbox) ->
+	take_msg_by_ref(MsgId, Outbox, []).
+take_msg_by_ref(_MsgId, [], _Acc) ->
+	not_found;
+%%matched
+take_msg_by_ref(MsgId, [SentMsg | Tl], Acc) when SentMsg#msg_sent.msg_ref == MsgId ->
+	{SentMsg, Acc ++ Tl};
+%% no match, test next item
+take_msg_by_ref(MsgId, [H | Tl], Acc) ->
+	take_msg_by_ref(MsgId, Tl, Acc ++ [H]).

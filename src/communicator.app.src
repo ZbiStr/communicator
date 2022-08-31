@@ -4,7 +4,10 @@
   {registered, []},
   {applications,
    [kernel,
-    stdlib
+    stdlib,
+    parse_trans,
+    eunit_addons,
+    mockgyver
    ]},
   {env,[]},
   {modules, []},

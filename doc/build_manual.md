@@ -1,7 +1,8 @@
 # Instrukcja budowania i uruchamiania
 
 
-Niniejszy dokument zawiera instrukcję budowania i uruchamiania systemu:
+Niniejszy dokument zawiera instrukcję budowania i uruchamiania systemu.  
+>**Uwaga:** Wszystkie polecenia powinny być wykonywane w folderze zawierającym projekt.
 
 ## Instrukcja budowania
 
@@ -27,11 +28,11 @@ Aby uruchomić klienta należy wykonać następujące polecenie w wierszu polece
 ```erlang
 client:start().
 ```
->**Uwaga:** Aby aplikacja działała poprawnie serwer i klient **muszą być** uruchomione w osobnych terminalach.
+>**Uwaga:** Aby aplikacja działała poprawnie serwer i klient **muszą być** uruchomione w osobnych terminalach.  
+Serwer powinien być urochomiony jako pierwszy.
 
 ## Instrukcja uruchamiania testów
   
-
 Aby uruchomić testy należy wykonać następujące polecenie: 
 ```erlang
 rebar3 do clean, compile, eunit --dir=test, cover --verbose
