@@ -2,9 +2,29 @@
 -behaviour(gen_server).
 
 %% API
--export([get_state/0, stop/0, start_link/0, logout/1, send_message/5, set_password/2, confirm/1, find_user/1, show_active_users/0, find_password/1, login/3, user_history/1, clear_whole_table/0]).
+-export([
+    start_link/0, 
+    stop/0, 
+    login/3, 
+    logout/1, 
+    set_password/2, 
+    find_password/1, 
+    find_user/1, 
+    show_active_users/0, 
+    user_history/1, 
+    get_state/0, 
+    send_message/5, 
+    confirm/1, 
+    clear_whole_table/0
+]).
 %% CALLBACK
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+-export([
+    init/1, 
+    handle_call/3, 
+    handle_cast/2, 
+    handle_info/2, 
+    terminate/2
+]).
 
 -define(SERVER, ?MODULE).
 -define(NODE_NAME, erlangpol).
