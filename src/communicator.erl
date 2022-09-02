@@ -155,7 +155,8 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                         undefined ->
                             SetPass = Client#client.password,
                             Password = decode_from_7_bits(CodedPassword),
-                            case Password of
+                            HashedPass = crypto:hash(sha256, list_to_binary(Password)),
+                            case HashedPass of
                                 SetPass ->
                                     % automatic messages sending after logging
                                     [send_message_to(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],
@@ -188,8 +189,9 @@ handle_call({logout, CodedName}, _From, State) ->
 handle_call({password, CodedName, CodedPassword}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
     Password = decode_from_7_bits(CodedPassword),
+    HashedPass = crypto:hash(sha256, list_to_binary(Password)),
     Client = maps:get(Name, State#state.clients),
-    UpdatedClients = maps:put(Name, Client#client{password = Password}, State#state.clients),
+    UpdatedClients = maps:put(Name, Client#client{password = HashedPass}, State#state.clients),
     log(State#state.log_file, "User \"~s\" registered (set password)", [Name]),
     {reply, ok, State#state{clients = UpdatedClients}};
 handle_call({find_password, CodedName}, _From, State) ->
