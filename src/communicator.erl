@@ -35,6 +35,7 @@
     server_name = undefined,
     log_file = undefined,
     max_clients = undefined,
+    message = undefined,
     clients = #{},
     outbox = []}).
 -record(client, {
@@ -117,6 +118,9 @@ send_message_to(To, Time, From, Message, MsgId) ->
             CodedTo = code_to_7_bits(To),
             gen_server:cast({?SERVER, server_node()}, {send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId})
     end.
+change_message(Message) ->
+    gen_server:cast({?SERVER, server_node()}, {change_message, Message}).
+
 confirm(MsgId) ->
     gen_server:cast({?SERVER, server_node()}, {msg_confirm_from_client, MsgId}).
 % ================================================================================
@@ -130,9 +134,13 @@ init(_Args) ->
             ok
     end,
     erlang:set_cookie(local, ?COOKIE),
-    {ok, {ServerName,MaxNumber,LogFilePath}} = load_configuration("server_config.txt"),
+    {ok, {ServerName,MaxNumber,LogFilePath, CustomMessage}} = load_configuration("server_config.txt"),
     log(LogFilePath, "Server with name \"~s\" has been started. Created on node ~p", [ServerName,server_node()]),
-    {ok, #state{server_name = ServerName, max_clients = list_to_integer(MaxNumber), log_file = LogFilePath}}.
+    {ok, #state{
+        server_name = ServerName,
+        max_clients = list_to_integer(MaxNumber),
+        log_file = LogFilePath,
+        message = CustomMessage}}.
 
 handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
@@ -283,7 +291,8 @@ handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId
             UpdatedOutbox = State#state.outbox ++ [NewOutbox],
             {noreply, State#state{outbox = UpdatedOutbox}}
     end;
-
+handle_cast({change_message, Message}, State) ->
+    {noreply, State#state{message = Message}};
 handle_cast({msg_confirm_from_client, MsgId}, State) ->
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, State#state.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
@@ -375,12 +384,14 @@ load_configuration(ConfigPath) ->
             PromptServerName = "Server name: ",
             PromptMaxClients = "Max number of clients: ",
             PromptLogFilePath = "Log file path: ",
+            PromptCustomMessage = "Default server message: ",
             _Trash = io:get_line(IoDevice,""),
             ServerName = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptServerName,
             MaxNumber = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptMaxClients,
             LogFilePath = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptLogFilePath,
+            CustomMessage = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptCustomMessage,
             file:close(ConfigPath),
-            {ok, {ServerName,MaxNumber,LogFilePath}}
+            {ok, {ServerName,MaxNumber,LogFilePath, CustomMessage}}
     catch
         error:Reason ->
             io:format("Loading config file failed with reason: ~w",[Reason]),

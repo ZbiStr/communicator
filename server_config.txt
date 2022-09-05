@@ -2,3 +2,4 @@
 Server name: Erlanpol serwer
 Max number of clients: 100
 Log file path: server.log
+Default server message: In this server we slay our enemies
