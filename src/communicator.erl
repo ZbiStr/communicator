@@ -67,8 +67,9 @@ login(Name, Address, Password) ->
         undefined ->
             gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, undefined});
         _ ->
+            CodedPass = code_to_7_bits(Password),
             PubKey = make_key(Name),
-			EncryptedPass = rsa_encrypt(Password, PubKey),
+			EncryptedPass = rsa_encrypt(CodedPass, PubKey),
             gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, EncryptedPass})
     end.
 
@@ -77,8 +78,9 @@ logout(Name) ->
     gen_server:call({?SERVER, server_node()}, {logout, CodedName}).
 
 set_password(Name, Password) ->
+    CodedPass = code_to_7_bits(Password),
     PubKey = communicator:make_key(Name),
-	EncryptedPass = rsa_encrypt(Password, PubKey),
+	EncryptedPass = rsa_encrypt(CodedPass, PubKey),
     CodedName = code_to_7_bits(Name),
     gen_server:call({?SERVER, server_node()}, {password, CodedName, EncryptedPass}).
 
@@ -163,7 +165,8 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
                         undefined ->
                             SetPass = Client#client.password,
                             DecryptedPass = rsa_decrypt(EncryptedPass, Client#client.private_key),
-                            HashedPass = crypto:hash(sha256, DecryptedPass),
+                            DecodedPass = decode_from_7_bits(DecryptedPass),
+                            HashedPass = crypto:hash(sha256, DecodedPass),
                             case HashedPass of
                                 SetPass ->
                                     % automatic messages sending after logging
@@ -198,7 +201,8 @@ handle_call({password, CodedName, EncryptedPass}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
     Client = maps:get(Name, State#state.clients),
     DecryptedPass = rsa_decrypt(EncryptedPass, Client#client.private_key),
-    HashedPass = crypto:hash(sha256, DecryptedPass),
+    DecodedPass = decode_from_7_bits(DecryptedPass),
+    HashedPass = crypto:hash(sha256, DecodedPass),
     UpdatedClients = maps:put(Name, Client#client{password = HashedPass}, State#state.clients),
     log(State#state.log_file, "User \"~s\" registered (set password)", [Name]),
     {reply, ok, State#state{clients = UpdatedClients}};
@@ -422,11 +426,11 @@ server_node() ->
     list_to_atom(atom_to_list(?NODE_NAME) ++ "@" ++ Host).
 
 rsa_decrypt(EncPass, Priv) ->
-    binary_to_list(crypto:private_decrypt(rsa, EncPass, Priv, [{rsa_padding,rsa_pkcs1_padding},{rsa_pad, rsa_pkcs1_padding}])).
+    crypto:private_decrypt(rsa, EncPass, Priv, [{rsa_padding,rsa_pkcs1_padding},{rsa_pad, rsa_pkcs1_padding}]).
 
 rsa_encrypt(Password, PubKey) ->
-    BinPass = list_to_binary(Password),
-    crypto:public_encrypt(rsa, BinPass, PubKey, [{rsa_padding,rsa_pkcs1_padding},{rsa_mgf1_md, sha}]). 
+    crypto:public_encrypt(rsa, Password, PubKey, [{rsa_padding,rsa_pkcs1_padding},{rsa_mgf1_md, sha}]). 
+
 
 
 
