@@ -149,7 +149,7 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                 not_found ->
                     UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
                     log(State#state.log_file, "Temporary user \"~s\" logged on from \"~w\"", [Name, Address]),
-                    {reply, ok, State#state{clients = UpdatedClients}};
+                    {reply, {ok, State#state.server_name}, State#state{clients = UpdatedClients}};
                 _ ->
                     case Client#client.address of
                         undefined ->
@@ -162,7 +162,7 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                                     [send_message_to(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],
                                     UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
                                     log(State#state.log_file, "Registered user \"~s\" logged on from \"~w\"", [Name, Address]),
-                                    {reply, ok, State#state{clients = UpdatedClients}};
+                                    {reply, {ok, State#state.server_name}, State#state{clients = UpdatedClients}};
                                 _ ->
                                     log(State#state.log_file, "Login attempt: \"~s\" from \"~w\" failed with wrong_password", [Name, Address]),
                                     {reply, wrong_password, State#state{}}

@@ -1,4 +1,4 @@
 ///Leave this line in and 1 blank space after prompt in every row (don't change the prompt)///
-Server name: Erlanpol serwer
+Server name: Erlanpol server
 Max number of clients: 100
 Log file path: server.log
