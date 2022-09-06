@@ -3,27 +3,28 @@
 
 %% API
 -export([
-    start_link/0, 
-    stop/0, 
-    login/3, 
-    logout/1, 
+    start_link/0,
+    stop/0,
+    login/3,
+    logout/1,
     set_password/2,
-    make_key/1, 
-    find_password/1, 
-    find_user/1, 
-    show_active_users/0, 
-    user_history/1, 
-    get_state/0, 
-    send_message/5, 
-    confirm/1, 
-    clear_whole_table/0
+    make_key/1,
+    find_password/1,
+    find_user/1,
+    show_active_users/0,
+    user_history/1,
+    get_state/0,
+    send_message/5,
+    confirm/1,
+    clear_whole_table/0,
+    change_message/1
 ]).
 %% CALLBACK
 -export([
-    init/1, 
-    handle_call/3, 
-    handle_cast/2, 
-    handle_info/2, 
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
     terminate/2
 ]).
 
@@ -36,6 +37,7 @@
     server_name = undefined,
     log_file = undefined,
     max_clients = undefined,
+    message = undefined,
     clients = #{},
     outbox = []}).
 -record(client, {
@@ -127,8 +129,17 @@ send_message_to(To, Time, From, Message, MsgId) ->
             CodedTo = code_to_7_bits(To),
             gen_server:cast({?SERVER, server_node()}, {send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId})
     end.
+
+change_message(Message) ->
+    gen_server:cast({?SERVER, server_node()}, {change_message, Message}),
+    custom_server_message().
+
+custom_server_message() ->
+    gen_server:cast({?SERVER, server_node()}, custom_server_message).
+
 confirm(MsgId) ->
     gen_server:cast({?SERVER, server_node()}, {msg_confirm_from_client, MsgId}).
+
 % ================================================================================
 % CALLBACK
 % ================================================================================
@@ -140,9 +151,13 @@ init(_Args) ->
             ok
     end,
     erlang:set_cookie(local, ?COOKIE),
-    {ok, {ServerName,MaxNumber,LogFilePath}} = load_configuration("server_config.txt"),
+    {ok, {ServerName,MaxNumber,LogFilePath, CustomMessage}} = load_configuration("server_config.txt"),
     log(LogFilePath, "Server with name \"~s\" has been started. Created on node ~p", [ServerName,server_node()]),
-    {ok, #state{server_name = ServerName, max_clients = list_to_integer(MaxNumber), log_file = LogFilePath}}.
+    {ok, #state{
+        server_name = ServerName,
+        max_clients = list_to_integer(MaxNumber),
+        log_file = LogFilePath,
+        message = CustomMessage}}.
 
 handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
@@ -157,6 +172,11 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
             Client = maps:get(Name, State#state.clients, not_found),
             case Client of
                 not_found ->
+                    % Custom message from server
+                    gen_statem:cast(Address, 
+                        {custom_server_message,
+                        code_to_7_bits(State#state.server_name),
+                        code_to_7_bits(State#state.message)}),
                     UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
                     log(State#state.log_file, "Temporary user \"~s\" logged on from \"~w\"", [Name, Address]),
                     {reply, ok, State#state{clients = UpdatedClients}};
@@ -169,6 +189,11 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
                             HashedPass = crypto:hash(sha256, DecodedPass),
                             case HashedPass of
                                 SetPass ->
+                                    % Custom message from server
+                                    gen_statem:cast(Address, 
+                                        {custom_server_message,
+                                        code_to_7_bits(State#state.server_name),
+                                        code_to_7_bits(State#state.message)}),
                                     % automatic messages sending after logging
                                     [send_message_to(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],
                                     UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
@@ -274,8 +299,16 @@ handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, S
     {ok, Sender} = maps:find(From, State#state.clients),
     gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
     {noreply, State};
-    
-handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) when CodedTo == all ->
+
+handle_cast(custom_server_message, State) ->
+    % calling sending function for all users in users list except the sender
+    [gen_statem:cast(Client#client.address, 
+        {custom_server_message,
+        code_to_7_bits(State#state.server_name),
+        code_to_7_bits(State#state.message)})
+    || {_Name, Client} <- maps:to_list(State#state.clients), Client#client.address =/= undefined],
+    {noreply, State#state{}};
+handle_cast({send_message_to, all, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
     From = decode_from_7_bits(CodedFrom),
     Message = decode_from_7_bits(CodedMessage),
     Time = decode_from_7_bits(CodedTime),
@@ -301,7 +334,8 @@ handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId
             UpdatedOutbox = State#state.outbox ++ [NewOutbox],
             {noreply, State#state{outbox = UpdatedOutbox}}
     end;
-
+handle_cast({change_message, Message}, State) ->
+    {noreply, State#state{message = Message}};
 handle_cast({msg_confirm_from_client, MsgId}, State) ->
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, State#state.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
@@ -393,12 +427,14 @@ load_configuration(ConfigPath) ->
             PromptServerName = "Server name: ",
             PromptMaxClients = "Max number of clients: ",
             PromptLogFilePath = "Log file path: ",
+            PromptCustomMessage = "Default server message: ",
             _Trash = io:get_line(IoDevice,""),
             ServerName = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptServerName,
             MaxNumber = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptMaxClients,
             LogFilePath = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptLogFilePath,
+            CustomMessage = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptCustomMessage,
             file:close(ConfigPath),
-            {ok, {ServerName,MaxNumber,LogFilePath}}
+            {ok, {ServerName,MaxNumber,LogFilePath, CustomMessage}}
     catch
         error:Reason ->
             io:format("Loading config file failed with reason: ~w",[Reason]),
@@ -408,12 +444,8 @@ load_configuration(ConfigPath) ->
 log(LogFilePath, LogMessage, Args) ->
     try file:open(LogFilePath, [append]) of
         {ok, IoDevice} ->
-            {{Y,M,D},{H,Min,S}} = calendar:local_time(),
-            Year = integer_to_list(Y),
-            TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
-            [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
-            Time =  Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second ++ " ",
-            io:format(IoDevice, Time ++ LogMessage ++ "~n", Args),
+            Time = get_time(),
+            io:format(IoDevice, Time ++ " " ++ LogMessage ++ "~n", Args),
             file:close(LogFilePath)
     catch
         error:Reason ->
@@ -425,17 +457,15 @@ server_node() ->
     {ok, Host} = inet:gethostname(),
     list_to_atom(atom_to_list(?NODE_NAME) ++ "@" ++ Host).
 
+get_time() ->
+    {{Y,M,D},{H,Min,S}} = calendar:local_time(),
+    Year = integer_to_list(Y),
+    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+    Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.
+
 rsa_decrypt(EncPass, Priv) ->
     crypto:private_decrypt(rsa, EncPass, Priv, [{rsa_padding,rsa_pkcs1_padding},{rsa_pad, rsa_pkcs1_padding}]).
 
 rsa_encrypt(Password, PubKey) ->
-    crypto:public_encrypt(rsa, Password, PubKey, [{rsa_padding,rsa_pkcs1_padding},{rsa_mgf1_md, sha}]). 
-
-
-
-
-
-
-
-    
-
+    crypto:public_encrypt(rsa, Password, PubKey, [{rsa_padding,rsa_pkcs1_padding},{rsa_mgf1_md, sha}]).

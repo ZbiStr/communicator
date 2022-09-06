@@ -75,14 +75,14 @@ send_message() ->
     ok = communicator:login(?NAME2, ?ADDRESS2, undefined),
     ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
     ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
-    timer:sleep(5),
+    timer:sleep(10),
     ok = communicator:confirm({?MSGID, ?NAME2}),
     ok = communicator:confirm(?MSGID),
 
     ok = communicator:set_password(?NAME2, ?PASSWORD),
     ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
     ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
-    timer:sleep(5),
+    timer:sleep(10),
     ok = communicator:confirm({?MSGID, ?NAME2}),
     ok = communicator:confirm(?MSGID),
 
@@ -90,7 +90,7 @@ send_message() ->
     ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
     ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
     ok = communicator:login(?NAME2, ?ADDRESS2, ?PASSWORD),
-    timer:sleep(5),
+    timer:sleep(10),
     ok = communicator:confirm({?MSGID, ?NAME2}),
     ok = communicator:confirm(?MSGID),
     ok = communicator:logout(?NAME1),
@@ -101,10 +101,10 @@ retry() ->
     ok = communicator:login(?NAME2, ?ADDRESS2, undefined),
     ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
     ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
-    timer:sleep(5),
+    timer:sleep(10),
     {communicator, get_node(?SERVER)} ! {msg_retry, ?MSGID},
     {communicator, get_node(?SERVER)} ! {msg_retry, {?MSGID, ?NAME2}},
-    timer:sleep(5),
+    timer:sleep(10),
     ok = communicator:confirm({?MSGID, ?NAME2}),
     ok = communicator:confirm(?MSGID),
     ok = communicator:logout(?NAME1),
@@ -120,7 +120,6 @@ find_password() ->
     ok = communicator:set_password(?NAME1, ?PASSWORD),
     defined = communicator:find_password(?NAME1).
 
-
 find_user() ->
     ok = communicator:login(?NAME1, ?ADDRESS1, undefined),
     ok = communicator:find_user(?NAME1),
@@ -133,7 +132,7 @@ confirm_mess_and_user_history() ->
     ok = communicator:set_password(?NAME2, ?PASSWORD),
     [] = communicator:user_history(?NAME2),
     ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
-    timer:sleep(5),
+    timer:sleep(10),
     communicator:confirm(?MSGID),
     [{?TIME, ?NAME1, ?MESSAGE}] = communicator:user_history(?NAME2).
 default() ->
