@@ -52,9 +52,8 @@ callback_mode() ->
 
 logged_out({call, From}, {login, Username, Password}, Data) ->
 	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
-		ok ->
-			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
-			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}};
+		{ok, ServerName} ->
+			{next_state, logged_in, Data#data{username = Username}, {reply, From, {ok, ServerName}}};
 		Reply ->
 			{keep_state_and_data, {reply, From, Reply}}
 	end;
@@ -239,7 +238,8 @@ login() ->
 		wrong_password ->
 			io:format("Wrong password, try again~n"),
 			login();
-		ok ->
+		{ok, ServerName} ->
+			io:format("Connected to server ~s~nFor avaiable commands type ~chelp~c~n", [ServerName, $",$"]),
 			Username
 	end.
 get_pass(Username) ->
