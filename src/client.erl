@@ -75,11 +75,7 @@ logged_in({call, From}, help, _Data) ->
 	help(),
 	{keep_state_and_data, {reply, From, ok}};
 logged_in({call, From}, {send, To, Message}, Data) ->
-	{{Y,M,D},{H,Min,S}} = calendar:local_time(),
-	Year = integer_to_list(Y),
-    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
-    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
-    Time =  Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second,
+	Time = get_time(),
 	case To of 
 		[] ->
 			MsgId = make_ref(),
@@ -141,7 +137,12 @@ logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage, MsgId}, _Data) ->
 	Time = decode_from_7_bits(CodedTime),
 	io:format("~s - ~s: ~s~n", [Time, From, Message]),
 	communicator:confirm(MsgId),
-    keep_state_and_data;
+	keep_state_and_data;
+logged_in(cast, {custom_server_message, CodedFrom, CodedMessage}, _Data) ->
+	From = decode_from_7_bits(CodedFrom),
+	Message = decode_from_7_bits(CodedMessage),
+	io:format("!!!~s: ~s!!!~n", [From, Message]),
+	keep_state_and_data;
 logged_in(EventType, EventContent, Data) ->
 	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),
 	keep_state_and_data.
@@ -328,3 +329,10 @@ take_msg_by_ref(MsgId, [SentMsg | Tl], Acc) when SentMsg#msg_sent.msg_ref == Msg
 %% no match, test next item
 take_msg_by_ref(MsgId, [H | Tl], Acc) ->
 	take_msg_by_ref(MsgId, Tl, Acc ++ [H]).
+
+get_time() ->
+    {{Y,M,D},{H,Min,S}} = calendar:local_time(),
+    Year = integer_to_list(Y),
+    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+    Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.

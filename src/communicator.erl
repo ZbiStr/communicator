@@ -3,26 +3,27 @@
 
 %% API
 -export([
-    start_link/0, 
-    stop/0, 
-    login/3, 
-    logout/1, 
-    set_password/2, 
-    find_password/1, 
-    find_user/1, 
-    show_active_users/0, 
-    user_history/1, 
-    get_state/0, 
-    send_message/5, 
-    confirm/1, 
-    clear_whole_table/0
+    start_link/0,
+    stop/0,
+    login/3,
+    logout/1,
+    set_password/2,
+    find_password/1,
+    find_user/1,
+    show_active_users/0,
+    user_history/1,
+    get_state/0,
+    send_message/5,
+    confirm/1,
+    clear_whole_table/0,
+    change_message/1
 ]).
 %% CALLBACK
 -export([
-    init/1, 
-    handle_call/3, 
-    handle_cast/2, 
-    handle_info/2, 
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
     terminate/2
 ]).
 
@@ -118,11 +119,17 @@ send_message_to(To, Time, From, Message, MsgId) ->
             CodedTo = code_to_7_bits(To),
             gen_server:cast({?SERVER, server_node()}, {send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId})
     end.
+
 change_message(Message) ->
-    gen_server:cast({?SERVER, server_node()}, {change_message, Message}).
+    gen_server:cast({?SERVER, server_node()}, {change_message, Message}),
+    custom_server_message().
+
+custom_server_message() ->
+    gen_server:cast({?SERVER, server_node()}, custom_server_message).
 
 confirm(MsgId) ->
     gen_server:cast({?SERVER, server_node()}, {msg_confirm_from_client, MsgId}).
+
 % ================================================================================
 % CALLBACK
 % ================================================================================
@@ -155,6 +162,11 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
             Client = maps:get(Name, State#state.clients, not_found),
             case Client of
                 not_found ->
+                    % Custom message from server
+                    gen_statem:cast(Address, 
+                        {custom_server_message,
+                        code_to_7_bits(State#state.server_name),
+                        code_to_7_bits(State#state.message)}),
                     UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
                     log(State#state.log_file, "Temporary user \"~s\" logged on from \"~w\"", [Name, Address]),
                     {reply, ok, State#state{clients = UpdatedClients}};
@@ -166,6 +178,11 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                             HashedPass = crypto:hash(sha256, list_to_binary(Password)),
                             case HashedPass of
                                 SetPass ->
+                                    % Custom message from server
+                                    gen_statem:cast(Address, 
+                                        {custom_server_message,
+                                        code_to_7_bits(State#state.server_name),
+                                        code_to_7_bits(State#state.message)}),
                                     % automatic messages sending after logging
                                     [send_message_to(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],
                                     UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
@@ -264,8 +281,16 @@ handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, S
     {ok, Sender} = maps:find(From, State#state.clients),
     gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
     {noreply, State};
-    
-handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) when CodedTo == all ->
+
+handle_cast(custom_server_message, State) ->
+    % calling sending function for all users in users list except the sender
+    [gen_statem:cast(Client#client.address, 
+        {custom_server_message,
+        code_to_7_bits(State#state.server_name),
+        code_to_7_bits(State#state.message)})
+    || {_Name, Client} <- maps:to_list(State#state.clients), Client#client.address =/= undefined],
+    {noreply, State#state{}};
+handle_cast({send_message_to, all, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
     From = decode_from_7_bits(CodedFrom),
     Message = decode_from_7_bits(CodedMessage),
     Time = decode_from_7_bits(CodedTime),
@@ -401,12 +426,8 @@ load_configuration(ConfigPath) ->
 log(LogFilePath, LogMessage, Args) ->
     try file:open(LogFilePath, [append]) of
         {ok, IoDevice} ->
-            {{Y,M,D},{H,Min,S}} = calendar:local_time(),
-            Year = integer_to_list(Y),
-            TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
-            [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
-            Time =  Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second ++ " ",
-            io:format(IoDevice, Time ++ LogMessage ++ "~n", Args),
+            Time = get_time(),
+            io:format(IoDevice, Time ++ " " ++ LogMessage ++ "~n", Args),
             file:close(LogFilePath)
     catch
         error:Reason ->
@@ -417,3 +438,10 @@ log(LogFilePath, LogMessage, Args) ->
 server_node() ->
     {ok, Host} = inet:gethostname(),
     list_to_atom(atom_to_list(?NODE_NAME) ++ "@" ++ Host).
+
+get_time() ->
+    {{Y,M,D},{H,Min,S}} = calendar:local_time(),
+    Year = integer_to_list(Y),
+    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+    Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.
