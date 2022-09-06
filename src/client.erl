@@ -74,11 +74,7 @@ logged_in({call, From}, help, _Data) ->
 	help(),
 	{keep_state_and_data, {reply, From, ok}};
 logged_in({call, From}, {send, To, Message}, Data) ->
-	{{Y,M,D},{H,Min,S}} = calendar:local_time(),
-	Year = integer_to_list(Y),
-    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
-    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
-    Time =  Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second,
+	Time = get_time(),
 	case To of 
 		[] ->
 			MsgId = make_ref(),
@@ -140,7 +136,12 @@ logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage, MsgId}, _Data) ->
 	Time = decode_from_7_bits(CodedTime),
 	io:format("~s - ~s: ~s~n", [Time, From, Message]),
 	communicator:confirm(MsgId),
-    keep_state_and_data;
+	keep_state_and_data;
+logged_in(cast, {custom_server_message, CodedFrom, CodedMessage}, _Data) ->
+	From = decode_from_7_bits(CodedFrom),
+	Message = decode_from_7_bits(CodedMessage),
+	io:format("!!!~s: ~s!!!~n", [From, Message]),
+	keep_state_and_data;
 logged_in(EventType, EventContent, Data) ->
 	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),
 	keep_state_and_data.
@@ -225,8 +226,8 @@ read_commands(Username) ->
 login() ->
 	Prompt = "Please input your username: ",
 	Username = read(Prompt),
-	Inputpass = get_pass(Username),
-	Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
+	InputPass = get_pass(Username),
+	Reply = gen_statem:call(?MODULE, {login, Username, InputPass}),
 	case Reply of
 		max_reached ->
 			io:format("Maximum number of logged in clients reached~n"),
@@ -242,14 +243,15 @@ login() ->
 			Username
 	end.
 get_pass(Username) ->
-	Findpass = communicator:find_password(Username),
-	case Findpass of
+	IsPassword = communicator:find_password(Username),
+	case IsPassword of
 		undefined ->
 			undefined;
 		_ ->
 			io:format("This user is password protected~n"),
 			PromptP = "Please input your password: ",
 			read(PromptP)
+
 	end.
 logout() ->
 	Reply = gen_statem:call(?MODULE, logout),
@@ -261,7 +263,7 @@ logout() ->
 	end.
 
 greet() ->
-	io:format("~nWelcome to communicator erlang~n").
+	io:format("~nWelcome to communicator erlangpol~n").
 
 help() ->
 	io:format("You can use the following commands:
@@ -328,3 +330,10 @@ take_msg_by_ref(MsgId, [SentMsg | Tl], Acc) when SentMsg#msg_sent.msg_ref == Msg
 %% no match, test next item
 take_msg_by_ref(MsgId, [H | Tl], Acc) ->
 	take_msg_by_ref(MsgId, Tl, Acc ++ [H]).
+
+get_time() ->
+    {{Y,M,D},{H,Min,S}} = calendar:local_time(),
+    Year = integer_to_list(Y),
+    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+    Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.

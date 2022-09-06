@@ -3,26 +3,28 @@
 
 %% API
 -export([
-    start_link/0, 
-    stop/0, 
-    login/3, 
-    logout/1, 
-    set_password/2, 
-    find_password/1, 
-    find_user/1, 
-    show_active_users/0, 
-    user_history/1, 
-    get_state/0, 
-    send_message/5, 
-    confirm/1, 
-    clear_whole_table/0
+    start_link/0,
+    stop/0,
+    login/3,
+    logout/1,
+    set_password/2,
+    make_key/1,
+    find_password/1,
+    find_user/1,
+    show_active_users/0,
+    user_history/1,
+    get_state/0,
+    send_message/5,
+    confirm/1,
+    clear_whole_table/0,
+    change_message/1
 ]).
 %% CALLBACK
 -export([
-    init/1, 
-    handle_call/3, 
-    handle_cast/2, 
-    handle_info/2, 
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
     terminate/2
 ]).
 
@@ -35,12 +37,14 @@
     server_name = undefined,
     log_file = undefined,
     max_clients = undefined,
+    message = undefined,
     clients = #{},
     outbox = []}).
 -record(client, {
     address = undefined,
     inbox=[],
-    password = undefined}).
+    password = undefined,
+    private_key = undefined}).
 -record(msg_sent, {
 	msg_ref, 
 	timer_ref, 
@@ -65,8 +69,10 @@ login(Name, Address, Password) ->
         undefined ->
             gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, undefined});
         _ ->
-            CodedPassword = code_to_7_bits(Password),
-            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, CodedPassword})
+            CodedPass = code_to_7_bits(Password),
+            PubKey = make_key(Name),
+			EncryptedPass = rsa_encrypt(CodedPass, PubKey),
+            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, EncryptedPass})
     end.
 
 logout(Name) ->
@@ -74,9 +80,15 @@ logout(Name) ->
     gen_server:call({?SERVER, server_node()}, {logout, CodedName}).
 
 set_password(Name, Password) ->
+    CodedPass = code_to_7_bits(Password),
+    PubKey = communicator:make_key(Name),
+	EncryptedPass = rsa_encrypt(CodedPass, PubKey),
     CodedName = code_to_7_bits(Name),
-    CodedPassword = code_to_7_bits(Password),
-    gen_server:call({?SERVER, server_node()}, {password, CodedName, CodedPassword}).
+    gen_server:call({?SERVER, server_node()}, {password, CodedName, EncryptedPass}).
+
+make_key(Name) ->
+    CodedName = code_to_7_bits(Name),
+    gen_server:call({?SERVER, server_node()}, {make_key, CodedName}).
 
 find_password(Name) ->
     CodedName = code_to_7_bits(Name),
@@ -117,8 +129,17 @@ send_message_to(To, Time, From, Message, MsgId) ->
             CodedTo = code_to_7_bits(To),
             gen_server:cast({?SERVER, server_node()}, {send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId})
     end.
+
+change_message(Message) ->
+    gen_server:cast({?SERVER, server_node()}, {change_message, Message}),
+    custom_server_message().
+
+custom_server_message() ->
+    gen_server:cast({?SERVER, server_node()}, custom_server_message).
+
 confirm(MsgId) ->
     gen_server:cast({?SERVER, server_node()}, {msg_confirm_from_client, MsgId}).
+
 % ================================================================================
 % CALLBACK
 % ================================================================================
@@ -130,11 +151,17 @@ init(_Args) ->
             ok
     end,
     erlang:set_cookie(local, ?COOKIE),
-    {ok, {ServerName,MaxNumber,LogFilePath}} = load_configuration("server_config.txt"),
+    {ok, {ServerName,MaxNumber,LogFilePath, CustomMessage}} = load_configuration("server_config.txt"),
     log(LogFilePath, "Server with name \"~s\" has been started. Created on node ~p", [ServerName,server_node()]),
-    {ok, #state{server_name = ServerName, max_clients = list_to_integer(MaxNumber), log_file = LogFilePath}}.
+    RegisteredUsers = read_server_status(),
+    {ok, #state{
+        server_name = ServerName,
+        max_clients = list_to_integer(MaxNumber),
+        log_file = LogFilePath,
+        message = CustomMessage,
+        clients = RegisteredUsers}}.
 
-handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
+handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
     ListOfUsers = maps:to_list(State#state.clients),
     ActiveUsers = [ Name1 || {Name1, Client} <- ListOfUsers, Client#client.address =/= undefined ],
@@ -147,6 +174,11 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
             Client = maps:get(Name, State#state.clients, not_found),
             case Client of
                 not_found ->
+                    % Custom message from server
+                    gen_statem:cast(Address, 
+                        {custom_server_message,
+                        code_to_7_bits(State#state.server_name),
+                        code_to_7_bits(State#state.message)}),
                     UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
                     log(State#state.log_file, "Temporary user \"~s\" logged on from \"~w\"", [Name, Address]),
                     {reply, {ok, State#state.server_name}, State#state{clients = UpdatedClients}};
@@ -154,10 +186,16 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                     case Client#client.address of
                         undefined ->
                             SetPass = Client#client.password,
-                            Password = decode_from_7_bits(CodedPassword),
-                            HashedPass = crypto:hash(sha256, list_to_binary(Password)),
+                            DecryptedPass = rsa_decrypt(EncryptedPass, Client#client.private_key),
+                            DecodedPass = decode_from_7_bits(DecryptedPass),
+                            HashedPass = crypto:hash(sha256, DecodedPass),
                             case HashedPass of
                                 SetPass ->
+                                    % Custom message from server
+                                    gen_statem:cast(Address, 
+                                        {custom_server_message,
+                                        code_to_7_bits(State#state.server_name),
+                                        code_to_7_bits(State#state.message)}),
                                     % automatic messages sending after logging
                                     [send_message_to(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],
                                     UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
@@ -186,22 +224,29 @@ handle_call({logout, CodedName}, _From, State) ->
             UpdatedClients = maps:update(Name, Client#client{address = undefined}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
-handle_call({password, CodedName, CodedPassword}, _From, State) ->
+handle_call({password, CodedName, EncryptedPass}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
-    Password = decode_from_7_bits(CodedPassword),
-    HashedPass = crypto:hash(sha256, list_to_binary(Password)),
     Client = maps:get(Name, State#state.clients),
+    DecryptedPass = rsa_decrypt(EncryptedPass, Client#client.private_key),
+    DecodedPass = decode_from_7_bits(DecryptedPass),
+    HashedPass = crypto:hash(sha256, DecodedPass),
     UpdatedClients = maps:put(Name, Client#client{password = HashedPass}, State#state.clients),
     log(State#state.log_file, "User \"~s\" registered (set password)", [Name]),
     {reply, ok, State#state{clients = UpdatedClients}};
+handle_call({make_key, CodedName}, _From, State) ->
+    Name = decode_from_7_bits(CodedName),
+    Client = maps:get(Name, State#state.clients),
+    {PubKey, PrivKey} = crypto:generate_key(rsa, {1024,65537}),
+    UpdatedClients = maps:put(Name, Client#client{private_key = PrivKey}, State#state.clients),
+    {reply, PubKey, State#state{clients = UpdatedClients}};
 handle_call({find_password, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
-    Client = maps:get(Name, State#state.clients, not_found),
-    case Client of
-        not_found ->
+    Client = maps:get(Name, State#state.clients),
+    case Client#client.password of
+        undefined ->
             {reply, undefined, State};
         _ ->
-            {reply, Client#client.password, State}
+            {reply, defined, State#state{}}
         end;
 handle_call({find_user, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
@@ -256,8 +301,16 @@ handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, S
     {ok, Sender} = maps:find(From, State#state.clients),
     gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
     {noreply, State};
-    
-handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) when CodedTo == all ->
+
+handle_cast(custom_server_message, State) ->
+    % calling sending function for all users in users list except the sender
+    [gen_statem:cast(Client#client.address, 
+        {custom_server_message,
+        code_to_7_bits(State#state.server_name),
+        code_to_7_bits(State#state.message)})
+    || {_Name, Client} <- maps:to_list(State#state.clients), Client#client.address =/= undefined],
+    {noreply, State#state{}};
+handle_cast({send_message_to, all, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
     From = decode_from_7_bits(CodedFrom),
     Message = decode_from_7_bits(CodedMessage),
     Time = decode_from_7_bits(CodedTime),
@@ -283,7 +336,8 @@ handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId
             UpdatedOutbox = State#state.outbox ++ [NewOutbox],
             {noreply, State#state{outbox = UpdatedOutbox}}
     end;
-
+handle_cast({change_message, Message}, State) ->
+    {noreply, State#state{message = Message}};
 handle_cast({msg_confirm_from_client, MsgId}, State) ->
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, State#state.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
@@ -321,12 +375,27 @@ handle_info(Info, State) ->
 
 terminate(Reason, State) ->
     log(State#state.log_file, "\"~s\" has been terminated with reason ~p", [State#state.server_name, Reason]),
+    save_to_file_server_status(State), 
     net_kernel:stop(),
     ok.
 
 % ================================================================================
 % INTERNAL FUNCTIONS
 % ================================================================================
+save_to_file_server_status(State) ->
+    ListOfUsers = maps:to_list(State#state.clients),
+    {ok, File} = dets:open_file(server_status, [{file, "server_status"}, {type, set}]),
+    RegisteredUsers = [{Name, Client#client{address = undefined}} || {Name, Client} <- ListOfUsers, Client#client.password =/= undefined],
+    dets:insert(server_status, {keyOfUsers, RegisteredUsers}),
+    % io:format("~p~n", [dets:lookup(server_status, keyOfUsers)]),
+    dets:close(File).
+
+read_server_status() ->
+    {ok, File} = dets:open_file(server_status, [{file, "server_status"}, {type, set}]),
+    RegisteredUsers = dets:lookup(server_status, keyOfUsers),
+    dets:close(File),
+    RegisteredUsersInMap = maps:from_list(RegisteredUsers),
+    RegisteredUsersInMap.
 
 save_to_file(Username, Time, From, Message) ->
     {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
@@ -375,12 +444,14 @@ load_configuration(ConfigPath) ->
             PromptServerName = "Server name: ",
             PromptMaxClients = "Max number of clients: ",
             PromptLogFilePath = "Log file path: ",
+            PromptCustomMessage = "Default server message: ",
             _Trash = io:get_line(IoDevice,""),
             ServerName = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptServerName,
             MaxNumber = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptMaxClients,
             LogFilePath = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptLogFilePath,
+            CustomMessage = string:trim(io:get_line(IoDevice,""), trailing, [$\n]) -- PromptCustomMessage,
             file:close(ConfigPath),
-            {ok, {ServerName,MaxNumber,LogFilePath}}
+            {ok, {ServerName,MaxNumber,LogFilePath, CustomMessage}}
     catch
         error:Reason ->
             io:format("Loading config file failed with reason: ~w",[Reason]),
@@ -390,12 +461,8 @@ load_configuration(ConfigPath) ->
 log(LogFilePath, LogMessage, Args) ->
     try file:open(LogFilePath, [append]) of
         {ok, IoDevice} ->
-            {{Y,M,D},{H,Min,S}} = calendar:local_time(),
-            Year = integer_to_list(Y),
-            TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
-            [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
-            Time =  Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second ++ " ",
-            io:format(IoDevice, Time ++ LogMessage ++ "~n", Args),
+            Time = get_time(),
+            io:format(IoDevice, Time ++ " " ++ LogMessage ++ "~n", Args),
             file:close(LogFilePath)
     catch
         error:Reason ->
@@ -406,3 +473,16 @@ log(LogFilePath, LogMessage, Args) ->
 server_node() ->
     {ok, Host} = inet:gethostname(),
     list_to_atom(atom_to_list(?NODE_NAME) ++ "@" ++ Host).
+
+get_time() ->
+    {{Y,M,D},{H,Min,S}} = calendar:local_time(),
+    Year = integer_to_list(Y),
+    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+    Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.
+
+rsa_decrypt(EncPass, Priv) ->
+    crypto:private_decrypt(rsa, EncPass, Priv, [{rsa_padding,rsa_pkcs1_padding},{rsa_pad, rsa_pkcs1_padding}]).
+
+rsa_encrypt(Password, PubKey) ->
+    crypto:public_encrypt(rsa, Password, PubKey, [{rsa_padding,rsa_pkcs1_padding},{rsa_mgf1_md, sha}]).
