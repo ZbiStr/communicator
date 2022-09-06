@@ -226,8 +226,8 @@ read_commands(Username) ->
 login() ->
 	Prompt = "Please input your username: ",
 	Username = read(Prompt),
-	Inputpass = get_pass(Username),
-	Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
+	InputPass = get_pass(Username),
+	Reply = gen_statem:call(?MODULE, {login, Username, InputPass}),
 	case Reply of
 		max_reached ->
 			io:format("Maximum number of logged in clients reached~n"),
@@ -242,14 +242,15 @@ login() ->
 			Username
 	end.
 get_pass(Username) ->
-	Findpass = communicator:find_password(Username),
-	case Findpass of
+	IsPassword = communicator:find_password(Username),
+	case IsPassword of
 		undefined ->
 			undefined;
 		_ ->
 			io:format("This user is password protected~n"),
 			PromptP = "Please input your password: ",
 			read(PromptP)
+
 	end.
 logout() ->
 	Reply = gen_statem:call(?MODULE, logout),
@@ -261,7 +262,7 @@ logout() ->
 	end.
 
 greet() ->
-	io:format("~nWelcome to communicator erlang~n").
+	io:format("~nWelcome to communicator erlangpol~n").
 
 help() ->
 	io:format("You can use the following commands:
