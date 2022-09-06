@@ -16,8 +16,7 @@
     get_state/0, 
     send_message/5, 
     confirm/1, 
-    clear_whole_table/0,
-    decode_from_7_bits/1
+    clear_whole_table/0
 ]).
 %% CALLBACK
 -export([
@@ -200,9 +199,6 @@ handle_call({password, CodedName, EncryptedPass}, _From, State) ->
     Client = maps:get(Name, State#state.clients),
     DecryptedPass = rsa_decrypt(EncryptedPass, Client#client.private_key),
     HashedPass = crypto:hash(sha256, DecryptedPass),
-    io:format("Enc: ~p~n", [EncryptedPass]),
-    io:format("Dec: ~p~n", [DecryptedPass]),
-    io:format("Hsh: ~p~n", [HashedPass]),
     UpdatedClients = maps:put(Name, Client#client{password = HashedPass}, State#state.clients),
     log(State#state.log_file, "User \"~s\" registered (set password)", [Name]),
     {reply, ok, State#state{clients = UpdatedClients}};
