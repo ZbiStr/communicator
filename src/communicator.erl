@@ -15,7 +15,8 @@
     get_state/0, 
     send_message/5, 
     confirm/1, 
-    clear_whole_table/0
+    clear_whole_table/0,
+    save_to_file_server_status/1
 ]).
 %% CALLBACK
 -export([
@@ -132,7 +133,8 @@ init(_Args) ->
     erlang:set_cookie(local, ?COOKIE),
     {ok, {ServerName,MaxNumber,LogFilePath}} = load_configuration("server_config.txt"),
     log(LogFilePath, "Server with name \"~s\" has been started. Created on node ~p", [ServerName,server_node()]),
-    {ok, #state{server_name = ServerName, max_clients = list_to_integer(MaxNumber), log_file = LogFilePath}}.
+    RegisteredUsers = read_server_status(),
+    {ok, #state{server_name = ServerName, max_clients = list_to_integer(MaxNumber), log_file = LogFilePath, clients = RegisteredUsers}}.
 
 handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
@@ -319,12 +321,27 @@ handle_info(Info, State) ->
 
 terminate(Reason, State) ->
     log(State#state.log_file, "\"~s\" has been terminated with reason ~p", [State#state.server_name, Reason]),
+    save_to_file_server_status(State), 
     net_kernel:stop(),
     ok.
 
 % ================================================================================
 % INTERNAL FUNCTIONS
 % ================================================================================
+save_to_file_server_status(State) ->
+    ListOfUsers = maps:to_list(State#state.clients),
+    {ok, File} = dets:open_file(server_status, [{file, "server_status"}, {type, set}]),
+    RegisteredUsers = [{Name, Client#client{address = undefined}} || {Name, Client} <- ListOfUsers, Client#client.password =/= undefined],
+    dets:insert(server_status, {keyOfUsers, RegisteredUsers}),
+    % io:format("~p~n", [dets:lookup(server_status, keyOfUsers)]),
+    dets:close(File).
+
+read_server_status() ->
+    {ok, File} = dets:open_file(server_status, [{file, "server_status"}, {type, set}]),
+    RegisteredUsers = dets:lookup(server_status, keyOfUsers),
+    RegisteredUsersInMap = maps:from_list(RegisteredUsers),
+    RegisteredUsersInMap,
+    dets:close(File).
 
 save_to_file(Username, Time, From, Message) ->
     {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
