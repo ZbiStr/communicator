@@ -159,11 +159,13 @@ init(_Args) ->
     erlang:set_cookie(local, ?COOKIE),
     {ok, {ServerName,MaxNumber,LogFilePath, CustomMessage}} = load_configuration("server_config.txt"),
     log(LogFilePath, "Server with name \"~s\" has been started. Created on node ~p", [ServerName,server_node()]),
+    RegisteredUsers = read_server_status(),
     {ok, #state{
         server_name = ServerName,
         max_clients = list_to_integer(MaxNumber),
         log_file = LogFilePath,
-        message = CustomMessage}}.
+        message = CustomMessage,
+        clients = RegisteredUsers}}.
 
 handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
@@ -187,7 +189,7 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
                     {ok, TimeRef} = timer:send_after(?AFK_TIME, {afk_time, Name}),
                     UpdatedClients = maps:put(Name, #client{address = Address, afk_timer = TimeRef}, State#state.clients),
                     log(State#state.log_file, "Temporary user \"~s\" logged on from \"~w\"", [Name, Address]),
-                    {reply, ok, State#state{clients = UpdatedClients}};
+                    {reply, {ok, State#state.server_name}, State#state{clients = UpdatedClients}};
                 _ ->
                     case Client#client.address of
                         undefined ->
@@ -212,7 +214,7 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
                                         afk_timer = TimeRef
                                     }, State#state.clients),
                                     log(State#state.log_file, "Registered user \"~s\" logged on from \"~w\"", [Name, Address]),
-                                    {reply, ok, State#state{clients = UpdatedClients}};
+                                    {reply, {ok, State#state.server_name}, State#state{clients = UpdatedClients}};
                                 _ ->
                                     log(State#state.log_file, "Login attempt: \"~s\" from \"~w\" failed with wrong_password", [Name, Address]),
                                     {reply, wrong_password, State#state{}}
@@ -405,12 +407,27 @@ handle_info(Info, State) ->
 
 terminate(Reason, State) ->
     log(State#state.log_file, "\"~s\" has been terminated with reason ~p", [State#state.server_name, Reason]),
+    save_to_file_server_status(State), 
     net_kernel:stop(),
     ok.
 
 % ================================================================================
 % INTERNAL FUNCTIONS
 % ================================================================================
+save_to_file_server_status(State) ->
+    ListOfUsers = maps:to_list(State#state.clients),
+    {ok, File} = dets:open_file(server_status, [{file, "server_status"}, {type, set}]),
+    RegisteredUsers = [{Name, Client#client{address = undefined}} || {Name, Client} <- ListOfUsers, Client#client.password =/= undefined],
+    dets:insert(server_status, {keyOfUsers, RegisteredUsers}),
+    % io:format("~p~n", [dets:lookup(server_status, keyOfUsers)]),
+    dets:close(File).
+
+read_server_status() ->
+    {ok, File} = dets:open_file(server_status, [{file, "server_status"}, {type, set}]),
+    RegisteredUsers = dets:lookup(server_status, keyOfUsers),
+    dets:close(File),
+    RegisteredUsersInMap = maps:from_list(RegisteredUsers),
+    RegisteredUsersInMap.
 
 save_to_file(Username, Time, From, Message) ->
     {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
