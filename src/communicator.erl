@@ -15,8 +15,7 @@
     get_state/0, 
     send_message/5, 
     confirm/1, 
-    clear_whole_table/0,
-    save_to_file_server_status/1
+    clear_whole_table/0
 ]).
 %% CALLBACK
 -export([
