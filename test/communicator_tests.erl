@@ -118,7 +118,7 @@ find_password() ->
     ok = communicator:login(?NAME1, ?ADDRESS1, undefined),
     undefined = communicator:find_password(?NAME1),
     ok = communicator:set_password(?NAME1, ?PASSWORD),
-    ?PASSWORD = communicator:find_password(?NAME1).
+    defined = communicator:find_password(?NAME1).
 
 
 find_user() ->
@@ -131,7 +131,7 @@ confirm_mess_and_user_history() ->
     ok = communicator:login(?NAME1, ?ADDRESS1, undefined),
     ok = communicator:login(?NAME2, ?ADDRESS2, undefined),
     ok = communicator:set_password(?NAME2, ?PASSWORD),
-    [] = communicator:user_history(?NAME1),
+    [] = communicator:user_history(?NAME2),
     ok = communicator:send_message(?NAME2, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
     timer:sleep(5),
     communicator:confirm(?MSGID),
@@ -144,3 +144,4 @@ default() ->
 get_node(Name) ->
 	{ok, Host} = inet:gethostname(),
 	list_to_atom(atom_to_list(Name) ++ "@" ++ Host).
+
