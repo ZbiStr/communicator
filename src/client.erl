@@ -8,6 +8,7 @@
 
 -define(COOKIE, ciasteczko).
 -define(MSG_DELIVERY_TIME, 5000).
+-define(ACTIVE_TIME, 1000000).
 
 -record(data, {
 	username = "" :: string(),
@@ -15,8 +16,8 @@
 	outbox :: list()
 }).
 -record(msg_sent, {
-	msg_ref, 
-	timer_ref, 
+	msg_ref,
+	timer_ref,
 	msg
 }).
 
@@ -53,6 +54,7 @@ callback_mode() ->
 logged_out({call, From}, {login, Username, Password}, Data) ->
 	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
 		{ok, ServerName} ->
+      {ok, _TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
 			{next_state, logged_in, Data#data{username = Username}, {reply, From, {ok, ServerName}}};
 		Reply ->
 			{keep_state_and_data, {reply, From, Reply}}
@@ -130,6 +132,10 @@ logged_in(timeout, {msg_retry, MsgRef}, Data) ->
 	NewData = Data#data{outbox = NewOutbox},
 	communicator:send_message(To, Time, Data#data.username, Message_txt, MsgRef),
 	{keep_state, NewData};
+logged_in(timeout, i_am_active, Data) ->
+	{ok, _TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
+	communicator:confirm_activity(Data#data.username),
+	{keep_state, Data};
 logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage, MsgId}, _Data) ->
 	From = decode_from_7_bits(CodedFrom),
 	Message = decode_from_7_bits(CodedMessage),

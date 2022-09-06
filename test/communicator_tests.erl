@@ -30,7 +30,8 @@ all_test_() ->
             fun show_active_users/0,
             fun find_password/0,
             fun confirm_mess_and_user_history/0,
-            fun default/0
+            fun default/0,
+            fun automatic_logout/0
         ]
     }.
 
@@ -69,6 +70,13 @@ login_with_wrongpass() ->
     ok = communicator:set_password(?NAME1, ?PASSWORD),
     ok = communicator:logout(?NAME1),
     wrong_password = communicator:login(?NAME1, ?ADDRESS1, ?BADPASSWORD).
+
+automatic_logout() ->
+    ok = communicator:login(?NAME1, ?ADDRESS1, undefined),
+    timer:sleep(10),
+    {communicator, get_node(?SERVER)} ! {afk_time, ?NAME1},
+    timer:sleep(10),
+    ok = communicator:login(?NAME1, ?ADDRESS1, undefined).
 
 send_message() ->
     {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined),
