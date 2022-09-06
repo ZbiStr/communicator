@@ -8,6 +8,7 @@
     login/3,
     logout/1,
     set_password/2,
+    make_key/1,
     find_password/1,
     find_user/1,
     show_active_users/0,
@@ -42,7 +43,8 @@
 -record(client, {
     address = undefined,
     inbox=[],
-    password = undefined}).
+    password = undefined,
+    private_key = undefined}).
 -record(msg_sent, {
 	msg_ref, 
 	timer_ref, 
@@ -67,8 +69,10 @@ login(Name, Address, Password) ->
         undefined ->
             gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, undefined});
         _ ->
-            CodedPassword = code_to_7_bits(Password),
-            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, CodedPassword})
+            CodedPass = code_to_7_bits(Password),
+            PubKey = make_key(Name),
+			EncryptedPass = rsa_encrypt(CodedPass, PubKey),
+            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, EncryptedPass})
     end.
 
 logout(Name) ->
@@ -76,9 +80,15 @@ logout(Name) ->
     gen_server:call({?SERVER, server_node()}, {logout, CodedName}).
 
 set_password(Name, Password) ->
+    CodedPass = code_to_7_bits(Password),
+    PubKey = communicator:make_key(Name),
+	EncryptedPass = rsa_encrypt(CodedPass, PubKey),
     CodedName = code_to_7_bits(Name),
-    CodedPassword = code_to_7_bits(Password),
-    gen_server:call({?SERVER, server_node()}, {password, CodedName, CodedPassword}).
+    gen_server:call({?SERVER, server_node()}, {password, CodedName, EncryptedPass}).
+
+make_key(Name) ->
+    CodedName = code_to_7_bits(Name),
+    gen_server:call({?SERVER, server_node()}, {make_key, CodedName}).
 
 find_password(Name) ->
     CodedName = code_to_7_bits(Name),
@@ -149,7 +159,7 @@ init(_Args) ->
         log_file = LogFilePath,
         message = CustomMessage}}.
 
-handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
+handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
     ListOfUsers = maps:to_list(State#state.clients),
     ActiveUsers = [ Name1 || {Name1, Client} <- ListOfUsers, Client#client.address =/= undefined ],
@@ -174,8 +184,9 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                     case Client#client.address of
                         undefined ->
                             SetPass = Client#client.password,
-                            Password = decode_from_7_bits(CodedPassword),
-                            HashedPass = crypto:hash(sha256, list_to_binary(Password)),
+                            DecryptedPass = rsa_decrypt(EncryptedPass, Client#client.private_key),
+                            DecodedPass = decode_from_7_bits(DecryptedPass),
+                            HashedPass = crypto:hash(sha256, DecodedPass),
                             case HashedPass of
                                 SetPass ->
                                     % Custom message from server
@@ -211,22 +222,29 @@ handle_call({logout, CodedName}, _From, State) ->
             UpdatedClients = maps:update(Name, Client#client{address = undefined}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
-handle_call({password, CodedName, CodedPassword}, _From, State) ->
+handle_call({password, CodedName, EncryptedPass}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
-    Password = decode_from_7_bits(CodedPassword),
-    HashedPass = crypto:hash(sha256, list_to_binary(Password)),
     Client = maps:get(Name, State#state.clients),
+    DecryptedPass = rsa_decrypt(EncryptedPass, Client#client.private_key),
+    DecodedPass = decode_from_7_bits(DecryptedPass),
+    HashedPass = crypto:hash(sha256, DecodedPass),
     UpdatedClients = maps:put(Name, Client#client{password = HashedPass}, State#state.clients),
     log(State#state.log_file, "User \"~s\" registered (set password)", [Name]),
     {reply, ok, State#state{clients = UpdatedClients}};
+handle_call({make_key, CodedName}, _From, State) ->
+    Name = decode_from_7_bits(CodedName),
+    Client = maps:get(Name, State#state.clients),
+    {PubKey, PrivKey} = crypto:generate_key(rsa, {1024,65537}),
+    UpdatedClients = maps:put(Name, Client#client{private_key = PrivKey}, State#state.clients),
+    {reply, PubKey, State#state{clients = UpdatedClients}};
 handle_call({find_password, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
-    Client = maps:get(Name, State#state.clients, not_found),
-    case Client of
-        not_found ->
+    Client = maps:get(Name, State#state.clients),
+    case Client#client.password of
+        undefined ->
             {reply, undefined, State};
         _ ->
-            {reply, Client#client.password, State}
+            {reply, defined, State#state{}}
         end;
 handle_call({find_user, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
@@ -445,3 +463,9 @@ get_time() ->
     TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
     [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
     Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.
+
+rsa_decrypt(EncPass, Priv) ->
+    crypto:private_decrypt(rsa, EncPass, Priv, [{rsa_padding,rsa_pkcs1_padding},{rsa_pad, rsa_pkcs1_padding}]).
+
+rsa_encrypt(Password, PubKey) ->
+    crypto:public_encrypt(rsa, Password, PubKey, [{rsa_padding,rsa_pkcs1_padding},{rsa_mgf1_md, sha}]).
