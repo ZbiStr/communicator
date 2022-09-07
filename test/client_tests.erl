@@ -50,7 +50,8 @@ start_system() ->
 	% separate nodes for client2 and server
 	{ok, NodeClient2} = slave:start(Host, ?CLIENT2, Args),
 	{ok, NodeServer} = slave:start(Host, ?SERVER, Args),
-
+	%{ok, _} = rpc:call(NodeServer, communicator, clear_whole_table, [server_status, "server_status"]).
+	ok = communicator:clear_whole_table(server_status, "server_status"),
 	{ok, _} = gen_statem:start({local, client}, client, [], []),
 	{ok, _} = rpc:call(NodeClient2, gen_statem, start, [{local, client}, client, [], []]),
 	{ok, _} = rpc:call(NodeServer, gen_server, start, [{local, communicator}, communicator, [], []]).
@@ -130,7 +131,7 @@ unknown_command() ->
 	unknown = gen_statem:call(client, not_a_command).
 
 history() ->
-	communicator:clear_whole_table(),
+	communicator:clear_whole_table(messages,"messages"),
 	{ok, _} = gen_statem:call(client, {login, ?NAME1, undefined}),
 	{ok, _} = gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME2, undefined}),
 	not_registered = gen_statem:call({client, get_node(?CLIENT2)}, history),

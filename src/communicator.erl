@@ -17,7 +17,7 @@
     send_message/5,
     confirm/1,
     confirm_activity/1,
-    clear_whole_table/0,
+    clear_whole_table/2,
     change_message/1
 ]).
 %% CALLBACK
@@ -451,9 +451,9 @@ save_to_file_when_existed(Username, Time, From, Message) ->
     UpdatedInbox = Inbox ++ [{Time, From, Message}],
     dets:insert(messages, {Username, UpdatedInbox}).
 
-clear_whole_table() ->
+clear_whole_table(Table, File) ->
     % delete all messages history
-    {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
+    {ok, Table} = dets:open_file(Table, [{file, File}, {type, set}]),
     dets:delete_all_objects(Table),
     dets:close(Table).
 

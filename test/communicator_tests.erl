@@ -38,6 +38,8 @@ all_test_() ->
 % SETUP
 
 start_system() ->
+    ok = communicator:clear_whole_table(server_status, "server_status"),
+    timer:sleep(20),
     {ok, _} = communicator:start_link().
 
 stop_system(_) ->
@@ -53,7 +55,7 @@ login_already_exists() ->
 	already_exists = communicator:login(?NAME1, ?ADDRESS1, undefined),
     ok = communicator:logout(?NAME1).
 
-set_password() -> 
+set_password() ->
     {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined),
     ok = communicator:set_password(?NAME1, ?PASSWORD),
     ok = communicator:logout(?NAME1).
@@ -72,11 +74,11 @@ login_with_wrongpass() ->
     wrong_password = communicator:login(?NAME1, ?ADDRESS1, ?BADPASSWORD).
 
 automatic_logout() ->
-    ok = communicator:login(?NAME1, ?ADDRESS1, undefined),
+    {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined),
     timer:sleep(10),
     {communicator, get_node(?SERVER)} ! {afk_time, ?NAME1},
     timer:sleep(10),
-    ok = communicator:login(?NAME1, ?ADDRESS1, undefined).
+    {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined).
 
 send_message() ->
     {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined),
@@ -134,7 +136,7 @@ find_user() ->
     does_not_exist = communicator:find_user(?NAME2).
 
 confirm_mess_and_user_history() ->
-    ok = communicator:clear_whole_table(),
+    ok = communicator:clear_whole_table(messages, "messages"),
     {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined),
     {ok, _} = communicator:login(?NAME2, ?ADDRESS2, undefined),
     ok = communicator:set_password(?NAME2, ?PASSWORD),
