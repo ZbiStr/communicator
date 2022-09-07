@@ -13,7 +13,9 @@
 -record(data, {
 	username = "" :: string(),
 	address  :: atom(), 
-	outbox :: list()
+	outbox :: list(),
+	is_buffered = false,
+	buffer :: list()
 }).
 -record(msg_sent, {
 	msg_ref,
@@ -46,7 +48,7 @@ init([]) ->
             Node
     end,
 	erlang:set_cookie(local, ?COOKIE),
-	{ok, logged_out, #data{address = Address, outbox = []}}.
+	{ok, logged_out, #data{address = Address, outbox = [], buffer = []}}.
 
 callback_mode() ->
 	state_functions.
@@ -54,7 +56,7 @@ callback_mode() ->
 logged_out({call, From}, {login, Username, Password}, Data) ->
 	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
 		{ok, ServerName} ->
-      {ok, _TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
+			{ok, _TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
 			{next_state, logged_in, Data#data{username = Username}, {reply, From, {ok, ServerName}}};
 		Reply ->
 			{keep_state_and_data, {reply, From, Reply}}
@@ -135,19 +137,30 @@ logged_in(timeout, {msg_retry, MsgRef}, Data) ->
 logged_in(timeout, i_am_active, Data) ->
 	{ok, _TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
 	communicator:confirm_activity(Data#data.username),
-	{keep_state, Data};
-logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage, MsgId}, _Data) ->
+	keep_state_and_data;
+logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage, MsgId}, Data) ->
 	From = decode_from_7_bits(CodedFrom),
 	Message = decode_from_7_bits(CodedMessage),
 	Time = decode_from_7_bits(CodedTime),
-	io:format("~s - ~s: ~s~n", [Time, From, Message]),
 	communicator:confirm(MsgId),
-	keep_state_and_data;
+	case Data#data.is_buffered of
+		false ->
+			io:format("~s - ~s: ~s~n", [Time, From, Message]),
+			keep_state_and_data;
+		true ->
+			NewBuffer = Data#data.buffer ++ [[Time, From, Message]],
+			{keep_state, Data#data{buffer = NewBuffer}}
+		end;
 logged_in(cast, {custom_server_message, CodedFrom, CodedMessage}, _Data) ->
 	From = decode_from_7_bits(CodedFrom),
 	Message = decode_from_7_bits(CodedMessage),
 	io:format("!!!~s: ~s!!!~n", [From, Message]),
 	keep_state_and_data;
+logged_in(cast, start_buffer, Data) ->
+	{keep_state, Data#data{is_buffered = true}};
+logged_in(cast, stop_buffer, Data) ->
+	[io:format("~s - ~s: ~s~n", X) || X <- Data#data.buffer],
+	{keep_state, Data#data{is_buffered = false, buffer = []}};
 logged_in(EventType, EventContent, Data) ->
 	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),
 	keep_state_and_data.
@@ -186,6 +199,7 @@ read_commands(Username) ->
 			gen_statem:stop(?MODULE),
 			exit(normal);
 		Command == send orelse Command == s ->
+      start_buffer(),
 			To = atom_to_list(Opts),
 			Message = read(PromptMessage),
 			Status = gen_statem:call(?MODULE, {send, To, Message}),
@@ -197,6 +211,7 @@ read_commands(Username) ->
 				private ->
 						io:format("You sent a message to ~p~n", [To])
 			end,
+			stop_buffer(),
 			read_commands(Username);
 		Command == users orelse Command == us ->
 			io:format("List of active users: ~p~n", [gen_statem:call(?MODULE, active_users)]),
@@ -343,3 +358,8 @@ get_time() ->
     TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
     [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
     Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.
+
+start_buffer() ->
+	gen_statem:cast(?MODULE, start_buffer).
+stop_buffer() ->
+	gen_statem:cast(?MODULE, stop_buffer).
