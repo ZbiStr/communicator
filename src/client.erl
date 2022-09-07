@@ -194,12 +194,12 @@ read_commands(Username) ->
 	Input = read(PromptReadCommands),
 	[Command, Opts] =
 		[list_to_atom(string:trim(Token)) || Token <- string:split(Input ++ " ", " ")],
-	case Command of
-		exit ->
+	if
+		Command == exit ->
 			gen_statem:stop(?MODULE),
 			exit(normal);
-		send ->
-			start_buffer(),
+		Command == send orelse Command == s ->
+      start_buffer(),
 			To = atom_to_list(Opts),
 			Message = read(PromptMessage),
 			Status = gen_statem:call(?MODULE, {send, To, Message}),
@@ -213,16 +213,16 @@ read_commands(Username) ->
 			end,
 			stop_buffer(),
 			read_commands(Username);
-		users ->
+		Command == users orelse Command == us ->
 			io:format("List of active users: ~p~n", [gen_statem:call(?MODULE, active_users)]),
 			read_commands(Username);
-		set_pass ->
+		Command == set_pass orelse Command == sp ->
 			PromptSetPass = "Please input desired password: ",
 			Password = read(PromptSetPass),
 			gen_statem:call(?MODULE, {set_pass, Password}),
 			io:format("Password has been set ~n"),
 			read_commands(Username);
-		history ->
+		Command == history orelse Command == his ->
 			History = gen_statem:call(?MODULE, history),
 			case History of
 				not_registered -> io:format("Only registered users have access to messagess history.~n");
@@ -234,12 +234,12 @@ read_commands(Username) ->
 					|| {Time, From, Message} <- History]
 			end,
 			read_commands(Username);
-		logout ->
+		Command == logout orelse Command == lg->
 			logout(),
 			greet(),
 			NewName = login(),
 			read_commands(NewName);
-		_ ->
+		true ->
 			gen_statem:call(?MODULE, Command),
 			read_commands(Username)
 	end.
@@ -288,12 +288,12 @@ greet() ->
 
 help() ->
 	io:format("You can use the following commands:
-logout			to log out from the server
-send			to send a message to all users
-send Username		to send a message to user called Username
-users			to show the list of active users
-set_pass		to set a new password
-history			to see your message history (only for registered users)
+logout (lg)			to log out from the server
+send (s)			to send a message to all users
+send (s) Username		to send a message to user called Username
+users (us)			to show the list of active users
+set_pass (sp)		to set a new password
+history (his)			to see your message history (only for registered users)
 help			to view this again
 exit			to exit the app~n").
 
