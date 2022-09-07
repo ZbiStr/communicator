@@ -392,10 +392,15 @@ save_to_file_server_status(State) ->
 
 read_server_status() ->
     {ok, File} = dets:open_file(server_status, [{file, "server_status"}, {type, set}]),
-    RegisteredUsers = dets:lookup(server_status, keyOfUsers),
+    LookupReply = dets:lookup(server_status, keyOfUsers),
     dets:close(File),
-    RegisteredUsersInMap = maps:from_list(RegisteredUsers),
-    RegisteredUsersInMap.
+    case LookupReply of
+        [] ->
+            #{};  
+        _ ->
+            [{keyOfUsers, RegisteredUsers}] = LookupReply,
+            _RegisteredUsersInMap = maps:from_list(RegisteredUsers)    
+    end.
 
 save_to_file(Username, Time, From, Message) ->
     {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
