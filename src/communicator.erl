@@ -47,7 +47,11 @@
     inbox=[],
     password = undefined,
     private_key = undefined,
-    afk_timer = undefined}).
+    afk_timer = undefined,
+    logout_time = "undefined",
+    login_time = "undefined", 
+    last_msg_time = "undefined"    
+}).
 -record(msg_sent, {
 	msg_ref, 
 	timer_ref, 
@@ -187,7 +191,7 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
                         code_to_7_bits(State#state.message)}),
                     % starting afk timer
                     {ok, TimeRef} = timer:send_after(?AFK_TIME, {afk_time, Name}),
-                    UpdatedClients = maps:put(Name, #client{address = Address, afk_timer = TimeRef}, State#state.clients),
+                    UpdatedClients = maps:put(Name, #client{address = Address, afk_timer = TimeRef, login_time = get_time(), logout_time = "temp"}, State#state.clients),
                     log(State#state.log_file, "Temporary user \"~s\" logged on from \"~w\"", [Name, Address]),
                     {reply, {ok, State#state.server_name}, State#state{clients = UpdatedClients}};
                 _ ->
@@ -211,7 +215,9 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
                                     UpdatedClients = maps:update(Name, Client#client{
                                         address = Address, 
                                         inbox = [], 
-                                        afk_timer = TimeRef
+                                        afk_timer = TimeRef,
+                                        login_time = get_time(),
+                                        logout_time = "active"
                                     }, State#state.clients),
                                     log(State#state.log_file, "Registered user \"~s\" logged on from \"~w\"", [Name, Address]),
                                     {reply, {ok, State#state.server_name}, State#state{clients = UpdatedClients}};
@@ -231,7 +237,7 @@ handle_call({password, CodedName, EncryptedPass}, _From, State) ->
     DecryptedPass = rsa_decrypt(EncryptedPass, Client#client.private_key),
     DecodedPass = decode_from_7_bits(DecryptedPass),
     HashedPass = crypto:hash(sha256, DecodedPass),
-    UpdatedClients = maps:put(Name, Client#client{password = HashedPass}, State#state.clients),
+    UpdatedClients = maps:put(Name, Client#client{password = HashedPass, logout_time = "active"}, State#state.clients),
     log(State#state.log_file, "User \"~s\" registered (set password)", [Name]),
     {reply, ok, State#state{clients = UpdatedClients}};
 handle_call({make_key, CodedName}, _From, State) ->
@@ -300,7 +306,7 @@ handle_cast({logout, CodedName}, State) ->
             {noreply, State#state{clients = UpdatedClients}};
         _Password ->
             log(State#state.log_file, "Registered user \"~s\" logged out", [Name]),
-            UpdatedClients = maps:update(Name, Client#client{address = undefined}, State#state.clients),
+            UpdatedClients = maps:update(Name, Client#client{address = undefined, logout_time = get_time()}, State#state.clients),
             {noreply, State#state{clients = UpdatedClients}}
     end;
 handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
@@ -319,7 +325,8 @@ handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, S
     % sending sender a confirmation of receiving the message by server 
     {ok, Sender} = maps:find(From, State#state.clients),
     gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
-    {noreply, State};
+    UpdateSender = maps:update(From, Sender#client{last_msg_time = get_time()}, State#state.clients),
+    {noreply, State#state{clients = UpdateSender}};
 handle_cast(custom_server_message, State) ->
     % calling sending function for all users in users list except the sender
     [gen_statem:cast(Client#client.address, 
