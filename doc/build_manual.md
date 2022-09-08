@@ -16,7 +16,7 @@ rebar3 do compile
 
 Aby uruchomić serwer, kliknij dwukrotnie plik 'run_server.sh'
 
-Aby uruchomić klienta, należy kliknąć dwukrotnie plik 'run_clinet.sh'
+Aby uruchomić klienta, należy kliknąć dwukrotnie plik 'run_client.sh'
 
 >**Uwaga:** Serwer powinien być urochomiony jako pierwszy.
 
