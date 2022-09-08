@@ -11,7 +11,7 @@
     make_key/1,
     find_password/1,
     find_user/1,
-    show_active_users/0,
+    list_of_users/0,
     user_history/1,
     get_state/0,
     send_message/5,
@@ -47,11 +47,11 @@
     inbox=[],
     password = undefined,
     private_key = undefined,
-    afk_timer = undefined,
-    logout_time = "undefined",
+    afk_timer = undefined, 
+    logout_time = "undefined", 
     login_time = "undefined", 
-    last_msg_time = "undefined"    
-}).
+    last_msg_time = "undefined"
+    }).
 -record(msg_sent, {
 	msg_ref, 
 	timer_ref, 
@@ -105,8 +105,8 @@ find_user(Name) ->
     CodedName = code_to_7_bits(Name),
     gen_server:call({?SERVER, server_node()}, {find_user, CodedName}).
 
-show_active_users() ->
-    gen_server:call({?SERVER, server_node()}, show_active_users).
+list_of_users() ->
+    gen_server:call({?SERVER, server_node()}, list_of_users).
 
 user_history(Username) ->
     CodedUsername = code_to_7_bits(Username),
@@ -268,11 +268,16 @@ handle_call({find_user, CodedName}, _From, State) ->
         _Client ->
             {reply, ok, State#state{}}
     end;
-handle_call(show_active_users, _From, State) ->
+handle_call(list_of_users, _From, State) ->
     log(State#state.log_file, "Show active users called", []),
-    ListOfUsers = maps:to_list(State#state.clients),
-    ActiveUsers = [ Name || {Name, Client} <- ListOfUsers, Client#client.address =/= undefined ],
-    {reply, ActiveUsers, State#state{}};
+    MapToList = maps:to_list(State#state.clients),
+    ListOfUsers = [ {
+                        Name, 
+                        Client#client.last_msg_time, 
+                        Client#client.login_time, 
+                        Client#client.logout_time
+                    } || {Name, Client} <- MapToList, Client#client.address =/= undefined ],
+    {reply, ListOfUsers, State#state{}};
 handle_call({history, CodedUsername}, _From, State) ->
     Username = decode_from_7_bits(CodedUsername),
     log(State#state.log_file, "User \"~s\" requested his massage history", [Username]),
