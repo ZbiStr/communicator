@@ -320,8 +320,7 @@ read(Prompt) ->
 			Input;
 		_ ->
 			io:format("~s~n", [EmptyPrompt ++ Output]),
-			io:format("Wrong character at indicated position~n"),
-			io:format("Try again~n"),
+			io:format("Wrong character at indicated position~nTry again~n"),
 			read(Prompt)
 	end.
 
