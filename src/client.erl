@@ -102,9 +102,9 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 					{keep_state, NewData, {reply, From, private}}
 			end
 	end;
-logged_in({call, From}, active_users, _Data) ->
-	ActiveUsers = communicator:show_active_users(),
-	{keep_state_and_data, {reply, From, ActiveUsers}};
+logged_in({call, From}, list_of_users, _Data) ->
+	ListOfUsers = communicator:list_of_users(),
+	{keep_state_and_data, {reply, From, ListOfUsers}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
 	communicator:set_password(Data#data.username, Password),
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
@@ -199,7 +199,7 @@ read_commands(Username) ->
 			gen_statem:stop(?MODULE),
 			exit(normal);
 		Command == send orelse Command == s ->
-      start_buffer(),
+      		start_buffer(),
 			To = atom_to_list(Opts),
 			Message = read(PromptMessage),
 			Status = gen_statem:call(?MODULE, {send, To, Message}),
@@ -214,7 +214,10 @@ read_commands(Username) ->
 			stop_buffer(),
 			read_commands(Username);
 		Command == users orelse Command == us ->
-			io:format("List of active users: ~p~n", [gen_statem:call(?MODULE, active_users)]),
+			ListOfUsers = gen_statem:call(?MODULE, list_of_users),
+			[io:format(
+				"~s: last message time: ~s, last login time: ~s, logged out: ~s~n", [Name, LastMessage, LastLogin, LastLogout]) 
+			|| {Name, LastMessage, LastLogin, LastLogout} <- ListOfUsers],
 			read_commands(Username);
 		Command == set_pass orelse Command == sp ->
 			PromptSetPass = "Please input desired password: ",
@@ -291,7 +294,7 @@ help() ->
 logout (lg)			to log out from the server
 send (s)			to send a message to all users
 send (s) Username		to send a message to user called Username
-users (us)			to show the list of active users
+users (us)			to show the list of users with their status
 set_pass (sp)		to set a new password
 history (his)			to see your message history (only for registered users)
 help			to view this again
