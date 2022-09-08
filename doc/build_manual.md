@@ -14,11 +14,22 @@ rebar3 do compile
 ```
 ## Instrukcja uruchamiania
 
-Aby uruchomić serwer, kliknij dwukrotnie plik 'run_server.sh'
+Aby uruchomić aplikację należy wykonać następujące polecenie w wierszu poleceń:
+```erlang
+rebar3 shell
+```
+Następnie, by uruchomić serwer, należy wykonać następujące polecenie w wierszu poleceń:
 
-Aby uruchomić klienta, należy kliknąć dwukrotnie plik 'run_clinet.sh'
+```erlang
+communicator:start_link().
+```
 
->**Uwaga:** Serwer powinien być urochomiony jako pierwszy.
+Aby uruchomić klienta należy wykonać następujące polecenie w wierszu poleceń:
+```erlang
+client:start().
+```
+>**Uwaga:** Aby aplikacja działała poprawnie serwer i klient **muszą być** uruchomione w osobnych terminalach.  
+Serwer powinien być urochomiony jako pierwszy.
 
 ## Instrukcja uruchamiania testów
   
