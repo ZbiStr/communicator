@@ -27,7 +27,7 @@ all_test_() ->
             fun send_message/0,
             fun retry/0,
             fun find_user/0,
-            fun show_active_users/0,
+            fun list_of_users/0,
             fun find_password/0,
             fun confirm_mess_and_user_history/0,
             fun default/0,
@@ -38,10 +38,13 @@ all_test_() ->
 % SETUP
 
 start_system() ->
+    ok = communicator:clear_whole_table(server_status, "server_status"),
+    timer:sleep(20),
     {ok, _} = communicator:start_link().
 
 stop_system(_) ->
-    ok = communicator:stop().
+    ok = communicator:stop(),
+    ok = communicator:clear_whole_table(server_status, "server_status").
 
 % TESTCASES
 login_without_pass() ->
@@ -53,7 +56,7 @@ login_already_exists() ->
 	already_exists = communicator:login(?NAME1, ?ADDRESS1, undefined),
     ok = communicator:logout(?NAME1).
 
-set_password() -> 
+set_password() ->
     {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined),
     ok = communicator:set_password(?NAME1, ?PASSWORD),
     ok = communicator:logout(?NAME1).
@@ -72,11 +75,11 @@ login_with_wrongpass() ->
     wrong_password = communicator:login(?NAME1, ?ADDRESS1, ?BADPASSWORD).
 
 automatic_logout() ->
-    ok = communicator:login(?NAME1, ?ADDRESS1, undefined),
+    {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined),
     timer:sleep(10),
     {communicator, get_node(?SERVER)} ! {afk_time, ?NAME1},
     timer:sleep(10),
-    ok = communicator:login(?NAME1, ?ADDRESS1, undefined).
+    {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined).
 
 send_message() ->
     {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined),
@@ -118,9 +121,17 @@ retry() ->
     ok = communicator:logout(?NAME1),
     ok = communicator:logout(?NAME2).
     
-show_active_users() ->
+list_of_users() ->
     {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined),
-    [?NAME1] = communicator:show_active_users().
+    [{?NAME1, "undefined", _, "temp"}] = communicator:list_of_users(),
+    ok = communicator:set_password(?NAME1, ?PASSWORD),
+    [{?NAME1, "undefined", _, "active"}] = communicator:list_of_users(),
+    ok = communicator:send_message(all, ?TIME, ?NAME1, ?MESSAGE, ?MSGID),
+    [{?NAME1, ?TIME, _, "active"}] = communicator:list_of_users(),
+    {ok, _} = communicator:login(?NAME2, ?ADDRESS1, undefined),
+    [{?NAME1, ?TIME, _, "active"}, {?NAME2, "undefined", _, "temp"}] = communicator:list_of_users(),
+    ok = communicator:logout(?NAME1),
+    [{?NAME1, ?TIME, _, _}, {?NAME2, "undefined", _, "temp"}] = communicator:list_of_users().
 
 find_password() ->
     {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined),
@@ -134,7 +145,7 @@ find_user() ->
     does_not_exist = communicator:find_user(?NAME2).
 
 confirm_mess_and_user_history() ->
-    ok = communicator:clear_whole_table(),
+    ok = communicator:clear_whole_table(messages, "messages"),
     {ok, _} = communicator:login(?NAME1, ?ADDRESS1, undefined),
     {ok, _} = communicator:login(?NAME2, ?ADDRESS2, undefined),
     ok = communicator:set_password(?NAME2, ?PASSWORD),

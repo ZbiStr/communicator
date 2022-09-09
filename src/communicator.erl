@@ -11,13 +11,13 @@
     make_key/1,
     find_password/1,
     find_user/1,
-    show_active_users/0,
+    list_of_users/0,
     user_history/1,
     get_state/0,
     send_message/5,
     confirm/1,
     confirm_activity/1,
-    clear_whole_table/0,
+    clear_whole_table/2,
     change_message/1
 ]).
 %% CALLBACK
@@ -47,7 +47,11 @@
     inbox=[],
     password = undefined,
     private_key = undefined,
-    afk_timer = undefined}).
+    afk_timer = undefined, 
+    logout_time = "undefined", 
+    login_time = "undefined", 
+    last_msg_time = "undefined"
+    }).
 -record(msg_sent, {
 	msg_ref, 
 	timer_ref, 
@@ -107,8 +111,8 @@ find_user(Name) ->
     CodedName = code_to_7_bits(Name),
     gen_server:call({?SERVER, server_node()}, {find_user, CodedName}).
 
-show_active_users() ->
-    gen_server:call({?SERVER, server_node()}, show_active_users).
+list_of_users() ->
+    gen_server:call({?SERVER, server_node()}, list_of_users).
 
 user_history(Username) ->
     CodedUsername = code_to_7_bits(Username),
@@ -193,7 +197,7 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
                         code_to_7_bits(State#state.message)}),
                     % starting afk timer
                     {ok, TimeRef} = timer:send_after(?AFK_TIME, {afk_time, Name}),
-                    UpdatedClients = maps:put(Name, #client{address = Address, afk_timer = TimeRef}, State#state.clients),
+                    UpdatedClients = maps:put(Name, #client{address = Address, afk_timer = TimeRef, login_time = get_time(), logout_time = "temp"}, State#state.clients),
                     log(State#state.log_file, "Temporary user \"~s\" logged on from \"~w\"", [Name, Address]),
                     {reply, {ok, State#state.server_name}, State#state{clients = UpdatedClients}};
                 _ ->
@@ -217,7 +221,9 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
                                     UpdatedClients = maps:update(Name, Client#client{
                                         address = Address, 
                                         inbox = [], 
-                                        afk_timer = TimeRef
+                                        afk_timer = TimeRef,
+                                        login_time = get_time(),
+                                        logout_time = "active"
                                     }, State#state.clients),
                                     log(State#state.log_file, "Registered user \"~s\" logged on from \"~w\"", [Name, Address]),
                                     {reply, {ok, State#state.server_name}, State#state{clients = UpdatedClients}};
@@ -237,7 +243,7 @@ handle_call({password, CodedName, EncryptedPass}, _From, State) ->
     DecryptedPass = rsa_decrypt(EncryptedPass, Client#client.private_key),
     DecodedPass = decode_from_7_bits(DecryptedPass),
     HashedPass = crypto:hash(sha256, DecodedPass),
-    UpdatedClients = maps:put(Name, Client#client{password = HashedPass}, State#state.clients),
+    UpdatedClients = maps:put(Name, Client#client{password = HashedPass, logout_time = "active"}, State#state.clients),
     log(State#state.log_file, "User \"~s\" registered (set password)", [Name]),
     {reply, ok, State#state{clients = UpdatedClients}};
 handle_call({make_key, CodedName}, _From, State) ->
@@ -268,11 +274,16 @@ handle_call({find_user, CodedName}, _From, State) ->
         _Client ->
             {reply, ok, State#state{}}
     end;
-handle_call(show_active_users, _From, State) ->
+handle_call(list_of_users, _From, State) ->
     log(State#state.log_file, "Show active users called", []),
-    ListOfUsers = maps:to_list(State#state.clients),
-    ActiveUsers = [ Name || {Name, Client} <- ListOfUsers, Client#client.address =/= undefined ],
-    {reply, ActiveUsers, State#state{}};
+    MapToList = maps:to_list(State#state.clients),
+    ListOfUsers = [ {
+                        Name, 
+                        Client#client.last_msg_time, 
+                        Client#client.login_time, 
+                        Client#client.logout_time
+                    } || {Name, Client} <- MapToList ],
+    {reply, ListOfUsers, State#state{}};
 handle_call({history, CodedUsername}, _From, State) ->
     Username = decode_from_7_bits(CodedUsername),
     log(State#state.log_file, "User \"~s\" requested his massage history", [Username]),
@@ -306,7 +317,7 @@ handle_cast({logout, CodedName}, State) ->
             {noreply, State#state{clients = UpdatedClients}};
         _Password ->
             log(State#state.log_file, "Registered user \"~s\" logged out", [Name]),
-            UpdatedClients = maps:update(Name, Client#client{address = undefined}, State#state.clients),
+            UpdatedClients = maps:update(Name, Client#client{address = undefined, logout_time = get_time()}, State#state.clients),
             {noreply, State#state{clients = UpdatedClients}}
     end;
 handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
@@ -325,7 +336,8 @@ handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, S
     % sending sender a confirmation of receiving the message by server 
     {ok, Sender} = maps:find(From, State#state.clients),
     gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
-    {noreply, State};
+    UpdateSender = maps:update(From, Sender#client{last_msg_time = Time}, State#state.clients),
+    {noreply, State#state{clients = UpdateSender}};
 handle_cast(custom_server_message, State) ->
     % calling sending function for all users in users list except the sender
     [gen_statem:cast(Client#client.address, 
@@ -457,9 +469,9 @@ save_to_file_when_existed(Username, Time, From, Message) ->
     UpdatedInbox = Inbox ++ [{Time, From, Message}],
     dets:insert(messages, {Username, UpdatedInbox}).
 
-clear_whole_table() ->
+clear_whole_table(Table, File) ->
     % delete all messages history
-    {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
+    {ok, Table} = dets:open_file(Table, [{file, File}, {type, set}]),
     dets:delete_all_objects(Table),
     dets:close(Table).
 

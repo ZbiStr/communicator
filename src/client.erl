@@ -103,9 +103,9 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 					{keep_state, NewData, {reply, From, private}}
 			end
 	end;
-logged_in({call, From}, active_users, _Data) ->
-	ActiveUsers = communicator:show_active_users(),
-	{keep_state_and_data, {reply, From, ActiveUsers}};
+logged_in({call, From}, list_of_users, _Data) ->
+	ListOfUsers = communicator:list_of_users(),
+	{keep_state_and_data, {reply, From, ListOfUsers}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
 	communicator:set_password(Data#data.username, Password),
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
@@ -200,7 +200,7 @@ read_commands(Lang, Username) ->
 			gen_statem:stop(?MODULE),
 			exit(normal);
 		Command == send orelse Command == s ->
-      start_buffer(),
+      		start_buffer(),
 			To = atom_to_list(Opts),
 			Message = read(Lang, PromptMessage),
 			Status = gen_statem:call(?MODULE, {send, To, Message}),
@@ -218,8 +218,10 @@ read_commands(Lang, Username) ->
 			stop_buffer(),
 			read_commands(Lang, Username);
 		Command == users orelse Command == us ->
-			PromptUsers = read_prompt(Lang, users),
-			io:format(PromptUsers, [gen_statem:call(?MODULE, active_users)]),
+			ListOfUsers = gen_statem:call(?MODULE, list_of_users),
+      PromptUsers = read_prompt(Lang, users),
+			[PromptUsers, [Name, LastMessage, LastLogin, LastLogout]) 
+			|| {Name, LastMessage, LastLogin, LastLogout} <- ListOfUsers],
 			read_commands(Lang, Username);
 		Command == set_pass orelse Command == sp ->
 			PromptSetPass = read_prompt(Lang, set_pass),
