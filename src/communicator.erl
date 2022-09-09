@@ -4,7 +4,9 @@
 %% API
 -export([
     start_link/0,
+    start_link/1,
     stop/0,
+    stop/1,
     login/3,
     logout/1,
     set_password/2,
@@ -57,18 +59,30 @@
 	timer_ref, 
 	msg
 }).
+-record(prompt, {
+    en :: string(),
+    pl :: string()
+}).
 
 % ================================================================================
 % API
 % ================================================================================
 start_link() ->
+    start_link(en).
+
+start_link(Lang) ->
     Result = gen_server:start_link({local, ?SERVER}, ?MODULE, [], []),
-    io:format("Communicator server has been started. Created on ~p~n", [server_node()]),
-	Result.
+    Prompt = read_prompt(Lang, server_start),
+    io:format(Prompt, [server_node()]),
+    Result.
 
 stop() ->
+    stop(en).
+
+stop(Lang) ->
     gen_server:stop({?SERVER, server_node()}),
-    io:format("Communicator server has been closed~n").
+    Prompt = read_prompt(Lang, server_stop),
+    io:format(Prompt).
 
 login(Name, Address, Password) ->
     CodedName = code_to_7_bits(Name),
@@ -78,7 +92,7 @@ login(Name, Address, Password) ->
         _ ->
             CodedPass = code_to_7_bits(Password),
             PubKey = make_key(Name),
-			EncryptedPass = rsa_encrypt(CodedPass, PubKey),
+            EncryptedPass = rsa_encrypt(CodedPass, PubKey),
             gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, EncryptedPass})
     end.
 
@@ -89,7 +103,7 @@ logout(Name) ->
 set_password(Name, Password) ->
     CodedPass = code_to_7_bits(Password),
     PubKey = communicator:make_key(Name),
-	EncryptedPass = rsa_encrypt(CodedPass, PubKey),
+    EncryptedPass = rsa_encrypt(CodedPass, PubKey),
     CodedName = code_to_7_bits(Name),
     gen_server:call({?SERVER, server_node()}, {password, CodedName, EncryptedPass}).
 
@@ -536,5 +550,13 @@ server_node() ->
     {ok, Host} = inet:gethostname(),
     list_to_atom(atom_to_list(?NODE_NAME) ++ "@" ++ Host).
 
-
-
+read_prompt(Lang, Id) ->
+	{ok, Table} = dets:open_file(prompts, [{file, "prompts"}, {type, set}]),
+	[{Id, Prompt}] = dets:lookup(Table, Id),
+	dets:close(Table),
+	case Lang of
+		en ->
+			Prompt#prompt.en;
+		pl ->
+			Prompt#prompt.pl
+	end.

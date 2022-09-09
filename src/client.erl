@@ -2,7 +2,7 @@
 -behaviour(gen_statem).
 
 %% API
--export([start/0]).
+-export([start/0, start/1]).
 %% CALLBACKS
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
@@ -22,18 +22,23 @@
 	timer_ref,
 	msg
 }).
+-record(prompt, {
+	en :: string(),
+	pl :: string()
+}).
 
 
 % ================================================================================
 % API
 % ================================================================================
-
-
 start() ->
+	start(en).
+
+start(Lang) ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []),
-	greet(),
-	Username = login(),
-	read_commands(Username).
+	greet(Lang),
+	Username = login(Lang),
+	read_commands(Lang, Username).
 
 % ================================================================================
 % CALLBACKS
@@ -41,12 +46,13 @@ start() ->
 
 
 init([]) ->
-	Address = case node() of
-        'nonode@nohost' ->
-            start_node();
-        Node ->
-            Node
-    end,
+	Address = 
+	case node() of
+		'nonode@nohost' ->
+			start_node();
+		Node ->
+			Node
+	end,
 	erlang:set_cookie(local, ?COOKIE),
 	{ok, logged_out, #data{address = Address, outbox = [], buffer = []}}.
 
@@ -74,9 +80,6 @@ logged_in({call, From}, logout, Data) ->
 	end;
 logged_in({call, From}, get_name, Data) ->
 	{keep_state_and_data, {reply, From, Data#data.username}};
-logged_in({call, From}, help, _Data) ->
-	help(),
-	{keep_state_and_data, {reply, From, ok}};
 logged_in({call, From}, {send, To, Message}, Data) ->
 	Time = get_time(),
 	case To of 
@@ -188,10 +191,10 @@ terminate(_Reason, _State, Data) ->
 % ================================================================================
 
 
-read_commands(Username) ->
+read_commands(Lang, Username) ->
 	PromptReadCommands = "@" ++ Username ++ "> ",
-	PromptMessage = "Message> ",
-	Input = read(PromptReadCommands),
+	PromptMessage = read_prompt(Lang, message),
+	Input = read(Lang, PromptReadCommands),
 	[Command, Opts] =
 		[list_to_atom(string:trim(Token)) || Token <- string:split(Input ++ " ", " ")],
 	if
@@ -199,106 +202,134 @@ read_commands(Username) ->
 			gen_statem:stop(?MODULE),
 			exit(normal);
 		Command == send orelse Command == s ->
-      		start_buffer(),
+			start_buffer(),
 			To = atom_to_list(Opts),
-			Message = read(PromptMessage),
+			Message = read(Lang, PromptMessage),
 			Status = gen_statem:call(?MODULE, {send, To, Message}),
 			case Status of 
 				all->
-						io:format("You sent a message to all users~n");
+					PromptAll = read_prompt(Lang, all),
+					io:format(PromptAll);
 				does_not_exist ->
-						io:format("There is no such user!~n");
+					PromptNotExist = read_prompt(Lang, does_not_exist),
+					io:format(PromptNotExist);
 				private ->
-						io:format("You sent a message to ~p~n", [To])
+					PromptPrivate = read_prompt(Lang, private),
+					io:format(PromptPrivate, [To])
 			end,
 			stop_buffer(),
-			read_commands(Username);
+			read_commands(Lang, Username);
 		Command == users orelse Command == us ->
 			ListOfUsers = gen_statem:call(?MODULE, list_of_users),
-			[io:format(
-				"~s: last message time: ~s, last login time: ~s, logged out: ~s~n", [Name, LastMessage, LastLogin, LastLogout]) 
+			PromptUsers = read_prompt(Lang, users),
+			[io:format(PromptUsers, [Name, LastMessage, LastLogin, LastLogout])
 			|| {Name, LastMessage, LastLogin, LastLogout} <- ListOfUsers],
-			read_commands(Username);
+			read_commands(Lang, Username);
 		Command == set_pass orelse Command == sp ->
-			PromptSetPass = "Please input desired password: ",
-			Password = read(PromptSetPass),
+			PromptSetPass = read_prompt(Lang, set_pass),
+			Password = read(Lang, PromptSetPass),
 			gen_statem:call(?MODULE, {set_pass, Password}),
-			io:format("Password has been set ~n"),
-			read_commands(Username);
+			PromptPassSet = read_prompt(Lang, pass_set),
+			io:format(PromptPassSet),
+			read_commands(Lang, Username);
 		Command == history orelse Command == his ->
 			History = gen_statem:call(?MODULE, history),
 			case History of
-				not_registered -> io:format("Only registered users have access to messagess history.~n");
-				[] -> io:format("Your history is empty.~n");
+				not_registered ->
+					PromptHistoryNR = read_prompt(Lang, history_not_registered),
+					io:format(PromptHistoryNR);
+				[] -> 
+					PromptHistoryEmpty = read_prompt(Lang, empty_history),
+					io:format(PromptHistoryEmpty);
 				_ -> 
 					[io:format("~s - ~s: ~s~n", [Time, 
 						From, 
 						Message])
 					|| {Time, From, Message} <- History]
 			end,
-			read_commands(Username);
-		Command == logout orelse Command == lg->
-			logout(),
-			greet(),
-			NewName = login(),
-			read_commands(NewName);
+			read_commands(Lang, Username);
+		Command == logout orelse Command == lg ->
+			logout(Lang),
+			greet(Lang),
+			NewName = login(Lang),
+			read_commands(Lang, NewName);
+		Command == help ->
+			help(Lang),
+			read_commands(Lang, Username);
 		true ->
 			gen_statem:call(?MODULE, Command),
-			read_commands(Username)
+			read_commands(Lang, Username)
 	end.
 
-login() ->
-	Prompt = "Please input your username: ",
-	Username = read(Prompt),
-	InputPass = get_pass(Username),
+login(Lang) ->
+	Prompt = read_prompt(Lang, login),
+	Username = read(Lang, Prompt),
+	InputPass = get_pass(Lang, Username),
 	Reply = gen_statem:call(?MODULE, {login, Username, InputPass}),
 	case Reply of
 		max_reached ->
-			io:format("Maximum number of logged in clients reached~n"),
-			login();
+			PromptMax = read_prompt(Lang, max_reached),
+			io:format(PromptMax),
+			login(Lang);
 		already_exists ->
-			io:format("Username already logged on~n"),
-			login();
+			PromptAlredy = read_prompt(Lang, already_exists),
+			io:format(PromptAlredy),
+			login(Lang);
 		wrong_password ->
-			io:format("Wrong password, try again~n"),
-			login();
+			PromptWrong = read_prompt(Lang, wrong_password),
+			io:format(PromptWrong),
+			login(Lang);
 		{ok, ServerName} ->
-			io:format("Connected to server ~s~nFor avaiable commands type ~chelp~c~n", [ServerName, $",$"]),
+			PromptServer = read_prompt(Lang, server_name),
+			io:format(PromptServer, [ServerName, $",$"]),
 			Username
 	end.
-get_pass(Username) ->
+get_pass(Lang, Username) ->
 	IsPassword = communicator:find_password(Username),
 	case IsPassword of
 		undefined ->
 			undefined;
 		_ ->
-			io:format("This user is password protected~n"),
-			PromptP = "Please input your password: ",
-			read(PromptP)
+			PromptIsPass = read_prompt(Lang, is_password),
+			io:format(PromptIsPass),
+			PromptPass = read_prompt(Lang, password_prompt),
+			read(Lang, PromptPass)
 
 	end.
-logout() ->
+logout(Lang) ->
 	Reply = gen_statem:call(?MODULE, logout),
 	case Reply of
 		ok ->
-			io:format("You have been successfully logged out~n");
+			PromptLogout = read_prompt(Lang, ok_logout),
+			io:format(PromptLogout);
 		_ ->
-			io:format("Something went wrong~n")
+			PromptNotOkLogout = read_prompt(Lang, not_ok_logout),
+			io:format(PromptNotOkLogout)
 	end.
 
-greet() ->
-	io:format("~nWelcome to communicator erlangpol~n").
+greet(Lang) ->
+	Prompt = read_prompt(Lang, greet),
+	io:format(Prompt).
 
-help() ->
-	io:format("You can use the following commands:
-logout (lg)			to log out from the server
-send (s)			to send a message to all users
-send (s) Username		to send a message to user called Username
-users (us)			to show the list of users with their status
-set_pass (sp)		to set a new password
-history (his)			to see your message history (only for registered users)
-help			to view this again
-exit			to exit the app~n").
+help(Lang) ->
+	Start = read_prompt(Lang, help),
+	Logout = read_prompt(Lang, help_logout),
+	SendAll = read_prompt(Lang, help_send),
+	SendUser = read_prompt(Lang, help_send_username),
+	Users = read_prompt(Lang, help_users),
+	SetPass = read_prompt(Lang, help_set_pass),
+	History = read_prompt(Lang, help_history),
+	Help = read_prompt(Lang, help_help),
+	Exit = read_prompt(Lang, help_exit),
+	io:format(Start ++
+	"logout (lg)		" ++ Logout ++
+	"send (s)			" ++ SendAll ++
+	"send (s) Username	" ++ SendUser ++
+	"users (us)			" ++ Users ++
+	"set_pass (sp)		" ++ SetPass ++
+	"history (his)		" ++ History ++
+	"help				" ++ Help ++
+	"exit				" ++ Exit).
 
 start_node() ->
 	% random lowercase letters
@@ -312,7 +343,7 @@ start_node() ->
 			start_node()
 	end.
 
-read(Prompt) ->
+read(Lang, Prompt) ->
 	% 32 to 126
 	Input = string:trim(io:get_line(Prompt), trailing, [$\n]),
 	Check = [32 || _<- Input],
@@ -323,9 +354,9 @@ read(Prompt) ->
 			Input;
 		_ ->
 			io:format("~s~n", [EmptyPrompt ++ Output]),
-			io:format("Wrong character at indicated position~n"),
-			io:format("Try again~n"),
-			read(Prompt)
+			PromptReadWrong = read_prompt(Lang, read_wrong),
+			io:format(PromptReadWrong),
+			read(Lang, Prompt)
 	end.
 
 check(Y) ->
@@ -356,13 +387,24 @@ take_msg_by_ref(MsgId, [H | Tl], Acc) ->
 	take_msg_by_ref(MsgId, Tl, Acc ++ [H]).
 
 get_time() ->
-    {{Y,M,D},{H,Min,S}} = calendar:local_time(),
-    Year = integer_to_list(Y),
-    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
-    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
-    Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.
+	{{Y,M,D},{H,Min,S}} = calendar:local_time(),
+	Year = integer_to_list(Y),
+	TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+	[Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+	Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.
 
 start_buffer() ->
 	gen_statem:cast(?MODULE, start_buffer).
 stop_buffer() ->
 	gen_statem:cast(?MODULE, stop_buffer).
+
+read_prompt(Lang, Id) ->
+	{ok, Table} = dets:open_file(prompts, [{file, "prompts"}, {type, set}]),
+	[{Id, Prompt}] = dets:lookup(Table, Id),
+	dets:close(Table),
+	case Lang of
+		en ->
+			Prompt#prompt.en;
+		pl ->
+			Prompt#prompt.pl
+	end.
