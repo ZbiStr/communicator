@@ -2,7 +2,7 @@
 -behaviour(gen_statem).
 
 %% API
--export([start/1]).
+-export([start/0, start/1]).
 %% CALLBACKS
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
@@ -23,15 +23,16 @@
 	msg
 }).
 -record(prompt, {
-    en :: string(),
-    pl :: string()
+	en :: string(),
+	pl :: string()
 }).
 
 
 % ================================================================================
 % API
 % ================================================================================
-
+start() ->
+	start(en).
 
 start(Lang) ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []),
@@ -45,12 +46,13 @@ start(Lang) ->
 
 
 init([]) ->
-	Address = case node() of
-        'nonode@nohost' ->
-            start_node();
-        Node ->
-            Node
-    end,
+	Address = 
+	case node() of
+		'nonode@nohost' ->
+			start_node();
+		Node ->
+			Node
+	end,
 	erlang:set_cookie(local, ?COOKIE),
 	{ok, logged_out, #data{address = Address, outbox = [], buffer = []}}.
 
@@ -200,7 +202,7 @@ read_commands(Lang, Username) ->
 			gen_statem:stop(?MODULE),
 			exit(normal);
 		Command == send orelse Command == s ->
-      		start_buffer(),
+			start_buffer(),
 			To = atom_to_list(Opts),
 			Message = read(Lang, PromptMessage),
 			Status = gen_statem:call(?MODULE, {send, To, Message}),
@@ -219,8 +221,8 @@ read_commands(Lang, Username) ->
 			read_commands(Lang, Username);
 		Command == users orelse Command == us ->
 			ListOfUsers = gen_statem:call(?MODULE, list_of_users),
-      PromptUsers = read_prompt(Lang, users),
-			[PromptUsers, [Name, LastMessage, LastLogin, LastLogout]) 
+			PromptUsers = read_prompt(Lang, users),
+			[io:format(PromptUsers, [Name, LastMessage, LastLogin, LastLogout])
 			|| {Name, LastMessage, LastLogin, LastLogout} <- ListOfUsers],
 			read_commands(Lang, Username);
 		Command == set_pass orelse Command == sp ->
@@ -385,11 +387,11 @@ take_msg_by_ref(MsgId, [H | Tl], Acc) ->
 	take_msg_by_ref(MsgId, Tl, Acc ++ [H]).
 
 get_time() ->
-    {{Y,M,D},{H,Min,S}} = calendar:local_time(),
-    Year = integer_to_list(Y),
-    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
-    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
-    Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.
+	{{Y,M,D},{H,Min,S}} = calendar:local_time(),
+	Year = integer_to_list(Y),
+	TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+	[Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+	Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.
 
 start_buffer() ->
 	gen_statem:cast(?MODULE, start_buffer).

@@ -3,7 +3,9 @@
 
 %% API
 -export([
+    start_link/0,
     start_link/1,
+    stop/0,
     stop/1,
     login/3,
     logout/1,
@@ -65,11 +67,17 @@
 % ================================================================================
 % API
 % ================================================================================
+start_link() ->
+    start_link(en).
+
 start_link(Lang) ->
     Result = gen_server:start_link({local, ?SERVER}, ?MODULE, [], []),
     Prompt = read_prompt(Lang, server_start),
     io:format(Prompt, [server_node()]),
-	Result.
+    Result.
+
+stop() ->
+    stop(en).
 
 stop(Lang) ->
     gen_server:stop({?SERVER, server_node()}),
@@ -84,7 +92,7 @@ login(Name, Address, Password) ->
         _ ->
             CodedPass = code_to_7_bits(Password),
             PubKey = make_key(Name),
-			EncryptedPass = rsa_encrypt(CodedPass, PubKey),
+            EncryptedPass = rsa_encrypt(CodedPass, PubKey),
             gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, EncryptedPass})
     end.
 
@@ -95,7 +103,7 @@ logout(Name) ->
 set_password(Name, Password) ->
     CodedPass = code_to_7_bits(Password),
     PubKey = communicator:make_key(Name),
-	EncryptedPass = rsa_encrypt(CodedPass, PubKey),
+    EncryptedPass = rsa_encrypt(CodedPass, PubKey),
     CodedName = code_to_7_bits(Name),
     gen_server:call({?SERVER, server_node()}, {password, CodedName, EncryptedPass}).
 
