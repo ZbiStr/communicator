@@ -5,8 +5,8 @@
 -export([
     start_link/0,
     stop/0,
-    login/4,
-    logout/2,
+    login/3,
+    logout/1,
     set_password/2,
     make_key/1,
     find_password/1,
@@ -70,23 +70,21 @@ stop() ->
     gen_server:stop({?SERVER, server_node()}),
     io:format("Communicator server has been closed~n").
 
-login(Name, Address, Password, LoginTime) ->
+login(Name, Address, Password) ->
     CodedName = code_to_7_bits(Name),
-    CodedLoginTime = code_to_7_bits(LoginTime),
     case Password of
         undefined ->
-            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, undefined, CodedLoginTime});
+            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, undefined});
         _ ->
             CodedPass = code_to_7_bits(Password),
             PubKey = make_key(Name),
 			EncryptedPass = rsa_encrypt(CodedPass, PubKey),
-            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, EncryptedPass, CodedLoginTime})
+            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, EncryptedPass})
     end.
 
-logout(Name, LogoutTime) ->
+logout(Name) ->
     CodedName = code_to_7_bits(Name),
-    CodedLogoutTime = code_to_7_bits(LogoutTime),
-    gen_server:cast({?SERVER, server_node()}, {logout, CodedName, CodedLogoutTime}).
+    gen_server:cast({?SERVER, server_node()}, {logout, CodedName}).
 
 set_password(Name, Password) ->
     CodedPass = code_to_7_bits(Password),
@@ -173,9 +171,8 @@ init(_Args) ->
         message = CustomMessage,
         clients = RegisteredUsers}}.
 
-handle_call({login, CodedName, Address, EncryptedPass, CodedLoginTime}, _From, State) ->
+handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
-    LoginTime = decode_from_7_bits(CodedLoginTime),
     ListOfUsers = maps:to_list(State#state.clients),
     ActiveUsers = [ Name1 || {Name1, Client} <- ListOfUsers, Client#client.address =/= undefined ],
     NumberOfActiveUsers = length(ActiveUsers),
@@ -194,7 +191,7 @@ handle_call({login, CodedName, Address, EncryptedPass, CodedLoginTime}, _From, S
                         code_to_7_bits(State#state.message)}),
                     % starting afk timer
                     {ok, TimeRef} = timer:send_after(?AFK_TIME, {afk_time, Name}),
-                    UpdatedClients = maps:put(Name, #client{address = Address, afk_timer = TimeRef, login_time = LoginTime, logout_time = "temp"}, State#state.clients),
+                    UpdatedClients = maps:put(Name, #client{address = Address, afk_timer = TimeRef, login_time = get_time(), logout_time = "temp"}, State#state.clients),
                     log(State#state.log_file, "Temporary user \"~s\" logged on from \"~w\"", [Name, Address]),
                     {reply, {ok, State#state.server_name}, State#state{clients = UpdatedClients}};
                 _ ->
@@ -219,7 +216,7 @@ handle_call({login, CodedName, Address, EncryptedPass, CodedLoginTime}, _From, S
                                         address = Address, 
                                         inbox = [], 
                                         afk_timer = TimeRef,
-                                        login_time = LoginTime,
+                                        login_time = get_time(),
                                         logout_time = "active"
                                     }, State#state.clients),
                                     log(State#state.log_file, "Registered user \"~s\" logged on from \"~w\"", [Name, Address]),
@@ -279,7 +276,7 @@ handle_call(list_of_users, _From, State) ->
                         Client#client.last_msg_time, 
                         Client#client.login_time, 
                         Client#client.logout_time
-                    } || {Name, Client} <- MapToList],
+                    } || {Name, Client} <- MapToList ],
     {reply, ListOfUsers, State#state{}};
 handle_call({history, CodedUsername}, _From, State) ->
     Username = decode_from_7_bits(CodedUsername),
@@ -304,9 +301,8 @@ handle_call(Request, _From, State) ->
     log(State#state.log_file, "Unrecognized call request ~p", [Request]),
     {reply, ok, State}.
 
-handle_cast({logout, CodedName, CodedLogoutTime}, State) ->
+handle_cast({logout, CodedName}, State) ->
     Name = decode_from_7_bits(CodedName),
-    LogoutTime = decode_from_7_bits(CodedLogoutTime),
     {ok, Client} = maps:find(Name, State#state.clients),
     case Client#client.password of
         undefined ->
@@ -315,7 +311,7 @@ handle_cast({logout, CodedName, CodedLogoutTime}, State) ->
             {noreply, State#state{clients = UpdatedClients}};
         _Password ->
             log(State#state.log_file, "Registered user \"~s\" logged out", [Name]),
-            UpdatedClients = maps:update(Name, Client#client{address = undefined, logout_time = LogoutTime}, State#state.clients),
+            UpdatedClients = maps:update(Name, Client#client{address = undefined, logout_time = get_time()}, State#state.clients),
             {noreply, State#state{clients = UpdatedClients}}
     end;
 handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
@@ -414,8 +410,7 @@ handle_info({msg_retry, MsgId}, State) ->
 	send_message_to(To, Time, From, Message_txt, MsgId),
 	{noreply, State#state{outbox = NewOutbox}};
 handle_info({afk_time, Name}, State) ->
-    Time = get_time(),
-	logout(Name, Time),
+	logout(Name),
     log(State#state.log_file, "User \"~s\" has been automatically logged out", [Name]),
 	{noreply, State};
 handle_info(Info, State) ->

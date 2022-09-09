@@ -53,8 +53,8 @@ init([]) ->
 callback_mode() ->
 	state_functions.
 
-logged_out({call, From}, {login, Username, Password, Time}, Data) ->
-	case communicator:login(Username, {?MODULE, Data#data.address}, Password, Time) of
+logged_out({call, From}, {login, Username, Password}, Data) ->
+	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
 		{ok, ServerName} ->
 			{ok, _TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
 			{next_state, logged_in, Data#data{username = Username}, {reply, From, {ok, ServerName}}};
@@ -64,8 +64,8 @@ logged_out({call, From}, {login, Username, Password, Time}, Data) ->
 logged_out({call, From}, _, _Data) ->
 	handle_unknown(From).
 
-logged_in({call, From}, {logout, Time}, Data) ->
-	case communicator:logout(Data#data.username, Time) of
+logged_in({call, From}, logout, Data) ->
+	case communicator:logout(Data#data.username) of
 		ok ->
 			{next_state, logged_out, Data#data{username = ""}, {reply, From, ok}};
 		_ ->
@@ -174,8 +174,7 @@ terminate(_Reason, _State, Data) ->
 		"" ->
 			ok;
 		Username ->
-			Time = get_time(),
-			try communicator:logout(Username, Time)
+			try communicator:logout(Username)
 			catch
 				exit:_ ->
 					ok
@@ -252,8 +251,7 @@ login() ->
 	Prompt = "Please input your username: ",
 	Username = read(Prompt),
 	InputPass = get_pass(Username),
-	Time = get_time(),
-	Reply = gen_statem:call(?MODULE, {login, Username, InputPass, Time}),
+	Reply = gen_statem:call(?MODULE, {login, Username, InputPass}),
 	case Reply of
 		max_reached ->
 			io:format("Maximum number of logged in clients reached~n"),
@@ -280,8 +278,7 @@ get_pass(Username) ->
 
 	end.
 logout() ->
-	Time = get_time(),
-	Reply = gen_statem:call(?MODULE, {logout, Time}),
+	Reply = gen_statem:call(?MODULE, logout),
 	case Reply of
 		ok ->
 			io:format("You have been successfully logged out~n");
