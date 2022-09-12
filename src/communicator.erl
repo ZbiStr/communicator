@@ -73,11 +73,6 @@ logout(Name) ->
     CodedName = code_to_7_bits(Name),
     gen_server:call({?SERVER, server_node()}, {logout, CodedName}).
 
-set_password(Name, Password) ->
-    CodedName = code_to_7_bits(Name),
-    CodedPassword = code_to_7_bits(Password),
-    gen_server:call({?SERVER, server_node()}, {password, CodedName, CodedPassword}).
-
 find_password(Name) ->
     CodedName = code_to_7_bits(Name),
     gen_server:call({?SERVER, server_node()}, {find_password, CodedName}).
@@ -99,6 +94,11 @@ user_history(Username) ->
 
 get_state() ->
     gen_server:call({?SERVER, server_node()}, get_state).
+
+set_password(Name, Password) ->
+    CodedName = code_to_7_bits(Name),
+    CodedPassword = code_to_7_bits(Password),
+    gen_server:cast({?SERVER, server_node()}, {set_password, CodedName, CodedPassword}).
 
 send_message(To, Time, From, Message, MsgId) ->
     CodedFrom = code_to_7_bits(From),
@@ -175,7 +175,6 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
 handle_call({logout, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
     {ok, Client} = maps:find(Name, State#state.clients),
-    io:format("pass logout: ~p~n", [Client#client.password]),
     case Client#client.password of
         "undefined" ->
             UpdatedClients = maps:without([Name], State#state.clients),
@@ -186,13 +185,6 @@ handle_call({logout, CodedName}, _From, State) ->
             UpdatedClients = maps:update(Name, Client#client{address = undefined}, State#state.clients),
             {reply, ok, State#state{clients = UpdatedClients}}
     end;
-handle_call({password, CodedName, CodedPassword}, _From, State) ->
-    Name = decode_from_7_bits(CodedName),
-    Password = decode_from_7_bits(CodedPassword),
-    Client = maps:get(Name, State#state.clients),
-    UpdatedClients = maps:put(Name, Client#client{password = Password}, State#state.clients),
-    log(State#state.log_file, "User \"~s\" registered (set password)", [Name]),
-    {reply, ok, State#state{clients = UpdatedClients}};
 handle_call({find_password, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
     Client = maps:get(Name, State#state.clients, not_found),
@@ -200,7 +192,7 @@ handle_call({find_password, CodedName}, _From, State) ->
         not_found ->
             {reply, undefined, State};
         _ ->
-            {reply, Client#client.password, State}
+            {reply, defined, State}
         end;
 handle_call({find_user, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
@@ -238,6 +230,14 @@ handle_call(Request, _From, State) ->
     log(State#state.log_file, "Unrecognized call request ~p", [Request]),
     {reply, ok, State}.
 
+
+handle_cast({set_password, CodedName, CodedPassword}, State) ->
+    Name = decode_from_7_bits(CodedName),
+    Password = decode_from_7_bits(CodedPassword),
+    Client = maps:get(Name, State#state.clients),
+    UpdatedClients = maps:put(Name, Client#client{password = Password}, State#state.clients),
+    log(State#state.log_file, "User \"~s\" registered (set password)", [Name]),
+    {noreply, State#state{clients = UpdatedClients}};
 handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
     From = decode_from_7_bits(CodedFrom),
     Message = decode_from_7_bits(CodedMessage),

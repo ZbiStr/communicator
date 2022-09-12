@@ -128,6 +128,14 @@ handleConnection(ClientSocket) ->
 					[Username] = Frame,
 					handle_logout(Username, ClientSocket),
 					handleConnection(ClientSocket);
+				{find_password, Frame} ->
+					[Username] = Frame,
+					handle_find_password(Username, ClientSocket),
+					handleConnection(ClientSocket);
+				{set_password, Frame} ->
+					[Username, Password] = Frame,
+					handle_set_password(Username, Password),
+					handleConnection(ClientSocket);
 				{close, _Frame} ->
 					gen_server:cast(?MODULE, {disconnected, ClientSocket}),
 					gen_server:cast(?MODULE, {message, "Server: Client disconnected!"}),
@@ -155,3 +163,11 @@ handle_login(Username, ClientSocket, Password) ->
 handle_logout(Username, ClientSocket) ->
 	Atom = communicator:logout(Username),
     gen_tcp:send(ClientSocket, atom_to_list(Atom)).
+
+handle_find_password(Username, ClientSocket) ->
+	Atom = communicator:find_password(Username),
+    gen_tcp:send(ClientSocket, atom_to_list(Atom)).
+
+handle_set_password(Username, Password) ->
+	communicator:set_password(Username, Password).
+

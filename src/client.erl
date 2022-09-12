@@ -87,6 +87,10 @@ logged_out({call, From}, {login, Username, Password}, Data) ->
 		Reply ->
 			{keep_state_and_data, {reply, From, Reply}}
 	end;
+logged_out({call, From}, {find_password, Username}, Data) ->
+	ReplyRaw = tcp_server:call(Data#data.address, "find_password;" ++ Username),
+	{Findpass, _}= tcp_server:decode_message(ReplyRaw),
+	{keep_state_and_data, {reply, From, Findpass}};
 logged_out({call, From}, _, _Data) ->
 	handle_unknown(From).
 
@@ -138,7 +142,7 @@ logged_in({call, From}, active_users, _Data) ->
 	ActiveUsers = communicator:show_active_users(),
 	{keep_state_and_data, {reply, From, ActiveUsers}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
-	communicator:set_password(Data#data.username, Password),
+	tcp_server:cast(Data#data.address, "set_password;" ++ Data#data.username ++ ";" ++ Password),
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, history, Data) ->
 	case communicator:find_password(Data#data.username) of
@@ -257,8 +261,8 @@ read_commands(Username) ->
 login() ->
 	Prompt = "Please input your username: ",
 	Username = read(Prompt),
-	% Inputpass = get_pass(Username),
-	Reply = gen_statem:call(?MODULE, {login, Username, "undefined"}),
+	Inputpass = get_pass(Username),
+	Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
 	case Reply of
 		max_reached ->
 			io:format("Maximum number of logged in clients reached~n"),
@@ -273,11 +277,11 @@ login() ->
 			Username
 	end.
 get_pass(Username) ->
-	Findpass = communicator:find_password(Username),
+	Findpass = gen_statem:call(?MODULE, {find_password, Username}),
 	case Findpass of
 		undefined ->
-			undefined;
-		_ ->
+			"undefined";
+		defined ->
 			io:format("This user is password protected~n"),
 			PromptP = "Please input your password: ",
 			read(PromptP)
