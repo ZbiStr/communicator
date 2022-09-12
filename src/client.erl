@@ -2,7 +2,7 @@
 -behaviour(gen_statem).
 
 %% API
--export([start/0]).
+-export([start/0, start/1]).
 %% CALLBACKS
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
@@ -25,6 +25,11 @@
 % API
 % ================================================================================
 
+start(Port) ->
+	gen_statem:start_link({local, ?MODULE}, ?MODULE, [{127,0,0,1}, Port, [list, {active, false}]], []),
+	greet(),
+	Username = login(),
+	read_commands(Username). 
 
 start() ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []),
@@ -37,24 +42,48 @@ start() ->
 % ================================================================================
 
 
-init([]) ->
-	Address = case node() of
-        'nonode@nohost' ->
-            start_node();
-        Node ->
-            Node
-    end,
-	erlang:set_cookie(local, ?COOKIE),
-	{ok, logged_out, #data{address = Address, outbox = []}}.
+% init([]) ->
+% 	Address = case node() of
+%         'nonode@nohost' ->
+%             start_node();
+%         Node ->
+%             Node
+%     end,
+% 	erlang:set_cookie(local, ?COOKIE),
+% 	{ok, logged_out, #data{address = Address, outbox = []}}.
+
+init([IP, Port, Opts]) ->
+	Socket = tcp_server:connect(IP, Port, Opts),
+	% Address = case node() of
+    %     'nonode@nohost' ->
+    %         start_node();
+    %     Node ->
+    %         Node
+    % end,
+	% erlang:set_cookie(local, ?COOKIE),
+	{ok, logged_out, #data{address = Socket, outbox = []}}.
 
 callback_mode() ->
 	state_functions.
 
+% logged_out({call, From}, {login, Username, Password}, Data) ->
+% 	Reply = tcp_server:call(Data#data.address, "login;" ++ Username ++ ";" ++ Password),
+% 	Reply2 = tcp_server:decode_message(Reply),
+% 	case Reply2 of
+% 		{ok, [_ServerName]} ->
+% 			% {ok, _TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
+% 			{next_state, logged_in, Data#data{username = Username}, {reply, From, Reply2}};
+% 		Reply2 ->
+% 			{keep_state_and_data, {reply, From, Reply2}}
+% 	end;
+
 logged_out({call, From}, {login, Username, Password}, Data) ->
-	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
+	ReplyRaw = tcp_server:call(Data#data.address, "login;" ++ Username ++ ";" ++ Password),
+	{Reply, _}= tcp_server:decode_message(ReplyRaw),
+	case Reply of
 		ok ->
 			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
-			{next_state, logged_in, Data#data{username = Username}, {reply, From, ok}};
+			{next_state, logged_in, Data#data{username = Username}, {reply, From, Reply}};
 		Reply ->
 			{keep_state_and_data, {reply, From, Reply}}
 	end;
@@ -226,8 +255,8 @@ read_commands(Username) ->
 login() ->
 	Prompt = "Please input your username: ",
 	Username = read(Prompt),
-	Inputpass = get_pass(Username),
-	Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
+	% Inputpass = get_pass(Username),
+	Reply = gen_statem:call(?MODULE, {login, Username, "undefined"}),
 	case Reply of
 		max_reached ->
 			io:format("Maximum number of logged in clients reached~n"),

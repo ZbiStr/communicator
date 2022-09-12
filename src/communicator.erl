@@ -27,7 +27,7 @@
 ]).
 
 -define(SERVER, ?MODULE).
--define(NODE_NAME, erlangpol).
+-define(NODE_NAME, erlangpolkrzys).
 -define(COOKIE, ciasteczko).
 -define(MSG_DELIVERY_TIME, 5000).
 
