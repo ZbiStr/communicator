@@ -40,7 +40,7 @@
 -record(client, {
     address = undefined,
     inbox=[],
-    password = undefined}).
+    password = "undefined"}).
 -record(msg_sent, {
 	msg_ref, 
 	timer_ref, 
@@ -62,8 +62,8 @@ stop() ->
 login(Name, Address, Password) ->
     CodedName = code_to_7_bits(Name),
     case Password of
-        undefined ->
-            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, undefined});
+        "undefined" ->
+            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, "undefined"});
         _ ->
             CodedPassword = code_to_7_bits(Password),
             gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, CodedPassword})
@@ -175,8 +175,9 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
 handle_call({logout, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
     {ok, Client} = maps:find(Name, State#state.clients),
+    io:format("pass logout: ~p~n", [Client#client.password]),
     case Client#client.password of
-        undefined ->
+        "undefined" ->
             UpdatedClients = maps:without([Name], State#state.clients),
             log(State#state.log_file, "Temporary user \"~s\" logged out", [Name]),
             {reply, ok, State#state{clients = UpdatedClients}};

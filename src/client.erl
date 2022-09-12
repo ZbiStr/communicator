@@ -91,7 +91,9 @@ logged_out({call, From}, _, _Data) ->
 	handle_unknown(From).
 
 logged_in({call, From}, logout, Data) ->
-	case communicator:logout(Data#data.username) of
+	ReplyRaw = tcp_server:call(Data#data.address, "logout;" ++ Data#data.username),
+	{Reply, _}= tcp_server:decode_message(ReplyRaw),
+	case Reply of
 		ok ->
 			{next_state, logged_out, Data#data{username = ""}, {reply, From, ok}};
 		_ ->

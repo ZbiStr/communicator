@@ -3,7 +3,7 @@
 
 %% API
 -export([start/1, stop/0]).
--export([connect/3, send/2, call/2, decode_message/1]).
+-export([connect/3, decode_message/1, call/2, cast/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 -record(client, {pid, socket}).
 -record(state, {port, listen_socket, client_list}).
@@ -16,13 +16,14 @@ connect(IP, Port, Opts) ->
     {ok, Socket} = gen_tcp:connect(IP, Port, Opts),
     Socket.
 
-send(Socket, Packet) ->
+cast(Socket, Packet) ->
     gen_tcp:send(Socket, Packet).
 
 call(Socket, Packet) ->
-    send(Socket, Packet),
+    cast(Socket, Packet),
     {ok, Reply} = gen_tcp:recv(Socket, 0),
     Reply.
+
 % ================================================================================
 % API SERVER
 % ================================================================================
@@ -121,8 +122,11 @@ handleConnection(ClientSocket) ->
 			case decode_message(Message) of
 				{login, Frame} ->
                     [Username, Password] = Frame,
-					Atom = communicator:login(Username, ClientSocket, Password),
-                    gen_tcp:send(ClientSocket, atom_to_list(Atom)),
+					handle_login(Username, ClientSocket, Password),
+					handleConnection(ClientSocket);
+				{logout, Frame} ->
+					[Username] = Frame,
+					handle_logout(Username, ClientSocket),
 					handleConnection(ClientSocket);
 				{close, _Frame} ->
 					gen_server:cast(?MODULE, {disconnected, ClientSocket}),
@@ -143,3 +147,11 @@ decode_message(Message) ->
 disconnect(ClientSocket, Reason) ->
 	%sendMessage(ClientSocket, Reason),
 	gen_tcp:close(ClientSocket).
+
+handle_login(Username, ClientSocket, Password) ->
+	Atom = communicator:login(Username, ClientSocket, Password),
+    gen_tcp:send(ClientSocket, atom_to_list(Atom)).
+
+handle_logout(Username, ClientSocket) ->
+	Atom = communicator:logout(Username),
+    gen_tcp:send(ClientSocket, atom_to_list(Atom)).
