@@ -7,12 +7,6 @@ echo "pl -polski"
 echo "en -english"
 read -p "Option: " lang
 
-if [ "$lang" = "en" ]; then
-	./run.escript en
-fi
-
-if [ "$lang" = "pl" ]; then
-	./run.escript pl
-fi
+./run.escript $lang
 
 $SHELL
