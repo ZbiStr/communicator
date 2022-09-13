@@ -8,21 +8,23 @@
 -record(client, {pid, socket}).
 -record(state, {port, listen_socket, client_list}).
 
+-define(DIVIDER, ";").
+
 % ================================================================================
 % API CLIENT
 % ================================================================================
 
 connect(IP, Port, Opts) ->
-    {ok, Socket} = gen_tcp:connect(IP, Port, Opts),
-    Socket.
+	{ok, Socket} = gen_tcp:connect(IP, Port, Opts),
+	Socket.
 
 cast(Socket, Packet) ->
-    gen_tcp:send(Socket, Packet).
+	gen_tcp:send(Socket, Packet).
 
 call(Socket, Packet) ->
-    cast(Socket, Packet),
-    {ok, Reply} = gen_tcp:recv(Socket, 0),
-    Reply.
+	cast(Socket, Packet),
+	{ok, Reply} = gen_tcp:recv(Socket, 0),
+	Reply.
 
 % ================================================================================
 % API SERVER
@@ -30,7 +32,7 @@ call(Socket, Packet) ->
 
 start(Port) ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, Port, []),
-    communicator:start_link().
+	communicator:start_link().
 	
 stop() ->
 	gen_server:stop(?MODULE, shutdown, infinity),
@@ -57,13 +59,13 @@ handle_cast({disconnected, ClientSocket}, State) ->
 	{noreply, NewState};
 
 handle_cast(_Msg, State) ->
-    {noreply, State}.
+	{noreply, State}.
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+	{reply, ok, State}.
 
 handle_info(_Info, State) ->
-    {noreply, State}.
+	{noreply, State}.
 
 terminate(shutdown, State) ->
 	Fun = fun(#client{socket=ClientSocket}) -> disconnect(ClientSocket, "Server is shutting down!") end,
@@ -121,8 +123,8 @@ handleConnection(ClientSocket) ->
 		{tcp, ClientSocket, Message} ->
 			case decode_message(Message) of
 				{login, Frame} ->
-                    [Username, Password] = Frame,
-					handle_login(Username, ClientSocket, Password),
+					[Username, IsPassword, Password] = Frame,
+					handle_login(Username, ClientSocket, IsPassword, Password),
 					handleConnection(ClientSocket);
 				{logout, Frame} ->
 					[Username] = Frame,
@@ -148,25 +150,31 @@ handleConnection(ClientSocket) ->
 	end.
 
 decode_message(Message) ->
-    [H|Frame] = string:split(Message,";", all),
-    Atom = list_to_atom(H),
-    {Atom, Frame}.
+	[H|Frame] = string:split(Message,?DIVIDER, all),
+	Atom = list_to_atom(H),
+	{Atom, Frame}.
 
-disconnect(ClientSocket, Reason) ->
+disconnect(ClientSocket, _Reason) ->
 	%sendMessage(ClientSocket, Reason),
 	gen_tcp:close(ClientSocket).
 
-handle_login(Username, ClientSocket, Password) ->
-	Atom = communicator:login(Username, ClientSocket, Password),
-    gen_tcp:send(ClientSocket, atom_to_list(Atom)).
+handle_login(Username, ClientSocket, IsPassword, Password) ->
+	case IsPassword of 
+		"0" ->
+			Atom = communicator:login(Username, ClientSocket, undefined),
+			gen_tcp:send(ClientSocket, atom_to_list(Atom));
+		"1" ->
+			Atom = communicator:login(Username, ClientSocket, Password),
+			gen_tcp:send(ClientSocket, atom_to_list(Atom))
+	end.
 
 handle_logout(Username, ClientSocket) ->
 	Atom = communicator:logout(Username),
-    gen_tcp:send(ClientSocket, atom_to_list(Atom)).
+	gen_tcp:send(ClientSocket, atom_to_list(Atom)).
 
 handle_find_password(Username, ClientSocket) ->
 	Atom = communicator:find_password(Username),
-    gen_tcp:send(ClientSocket, atom_to_list(Atom)).
+	gen_tcp:send(ClientSocket, atom_to_list(Atom)).
 
 handle_set_password(Username, Password) ->
 	communicator:set_password(Username, Password).

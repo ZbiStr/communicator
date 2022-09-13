@@ -7,6 +7,7 @@
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
 -define(COOKIE, ciasteczko).
+-define(DIVIDER, ";").
 -define(MSG_DELIVERY_TIME, 5000).
 
 -record(data, {
@@ -66,19 +67,8 @@ init([IP, Port, Opts]) ->
 callback_mode() ->
 	state_functions.
 
-% logged_out({call, From}, {login, Username, Password}, Data) ->
-% 	Reply = tcp_server:call(Data#data.address, "login;" ++ Username ++ ";" ++ Password),
-% 	Reply2 = tcp_server:decode_message(Reply),
-% 	case Reply2 of
-% 		{ok, [_ServerName]} ->
-% 			% {ok, _TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
-% 			{next_state, logged_in, Data#data{username = Username}, {reply, From, Reply2}};
-% 		Reply2 ->
-% 			{keep_state_and_data, {reply, From, Reply2}}
-% 	end;
-
 logged_out({call, From}, {login, Username, Password}, Data) ->
-	ReplyRaw = tcp_server:call(Data#data.address, "login;" ++ Username ++ ";" ++ Password),
+	ReplyRaw = tcp_server:call(Data#data.address, "login" ++ ?DIVIDER ++ Username ++ ?DIVIDER ++ Password),
 	{Reply, _}= tcp_server:decode_message(ReplyRaw),
 	case Reply of
 		ok ->
@@ -88,14 +78,14 @@ logged_out({call, From}, {login, Username, Password}, Data) ->
 			{keep_state_and_data, {reply, From, Reply}}
 	end;
 logged_out({call, From}, {find_password, Username}, Data) ->
-	ReplyRaw = tcp_server:call(Data#data.address, "find_password;" ++ Username),
+	ReplyRaw = tcp_server:call(Data#data.address, "find_password" ++ ?DIVIDER ++ Username),
 	{Findpass, _}= tcp_server:decode_message(ReplyRaw),
 	{keep_state_and_data, {reply, From, Findpass}};
 logged_out({call, From}, _, _Data) ->
 	handle_unknown(From).
 
 logged_in({call, From}, logout, Data) ->
-	ReplyRaw = tcp_server:call(Data#data.address, "logout;" ++ Data#data.username),
+	ReplyRaw = tcp_server:call(Data#data.address, "logout" ++ ?DIVIDER ++ Data#data.username),
 	{Reply, _}= tcp_server:decode_message(ReplyRaw),
 	case Reply of
 		ok ->
@@ -142,7 +132,7 @@ logged_in({call, From}, active_users, _Data) ->
 	ActiveUsers = communicator:show_active_users(),
 	{keep_state_and_data, {reply, From, ActiveUsers}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
-	tcp_server:cast(Data#data.address, "set_password;" ++ Data#data.username ++ ";" ++ Password),
+	tcp_server:cast(Data#data.address, "set_password" ++ ?DIVIDER ++ Data#data.username ++ ?DIVIDER ++ Password),
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, history, Data) ->
 	case communicator:find_password(Data#data.username) of
@@ -280,11 +270,11 @@ get_pass(Username) ->
 	Findpass = gen_statem:call(?MODULE, {find_password, Username}),
 	case Findpass of
 		undefined ->
-			"undefined";
+			"0" ++ ?DIVIDER ++ "undefined";
 		defined ->
 			io:format("This user is password protected~n"),
 			PromptP = "Please input your password: ",
-			read(PromptP)
+			"1" ++ ?DIVIDER ++ read(PromptP)
 	end.
 logout() ->
 	Reply = gen_statem:call(?MODULE, logout),
@@ -309,17 +299,17 @@ history			to see your message history (only for registered users)
 help			to view this again
 exit			to exit the app~n").
 
-start_node() ->
-	% random lowercase letters
-	Name = [96 + rand:uniform(26) || _ <- lists:seq(1,9)],
-	try net_kernel:start(list_to_atom(Name), #{name_domain => shortnames}) of
-		{ok, _} ->
-			{ok, Host} = inet:gethostname(),
-			list_to_atom(Name ++ "@" ++ Host)
-	catch
-		error:{already_started, _Pid} ->
-			start_node()
-	end.
+% start_node() ->
+% 	% random lowercase letters
+% 	Name = [96 + rand:uniform(26) || _ <- lists:seq(1,9)],
+% 	try net_kernel:start(list_to_atom(Name), #{name_domain => shortnames}) of
+% 		{ok, _} ->
+% 			{ok, Host} = inet:gethostname(),
+% 			list_to_atom(Name ++ "@" ++ Host)
+% 	catch
+% 		error:{already_started, _Pid} ->
+% 			start_node()
+% 	end.
 
 read(Prompt) ->
 	% 32 to 126

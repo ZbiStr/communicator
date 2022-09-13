@@ -62,8 +62,8 @@ stop() ->
 login(Name, Address, Password) ->
     CodedName = code_to_7_bits(Name),
     case Password of
-        "undefined" ->
-            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, "undefined"});
+        undefined ->
+            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, undefined});
         _ ->
             CodedPassword = code_to_7_bits(Password),
             gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, CodedPassword})
