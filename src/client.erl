@@ -79,8 +79,8 @@ logged_out({call, From}, {login, Username, Password}, Data) ->
 	end;
 logged_out({call, From}, {find_password, Username}, Data) ->
 	ReplyRaw = tcp_server:call(Data#data.address, "find_password" ++ ?DIVIDER ++ Username),
-	{Findpass, _}= tcp_server:decode_message(ReplyRaw),
-	{keep_state_and_data, {reply, From, Findpass}};
+	{FindPass, _}= tcp_server:decode_message(ReplyRaw),
+	{keep_state_and_data, {reply, From, FindPass}};
 logged_out({call, From}, _, _Data) ->
 	handle_unknown(From).
 

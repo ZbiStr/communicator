@@ -35,8 +35,8 @@ start(Port) ->
 	communicator:start_link().
 	
 stop() ->
-	gen_server:stop(?MODULE, shutdown, infinity),
-	communicator:stop().
+	communicator:stop(),
+	gen_server:stop(?MODULE, shutdown, infinity).
 
 % ================================================================================
 % CALLBACK

@@ -176,7 +176,7 @@ handle_call({logout, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
     {ok, Client} = maps:find(Name, State#state.clients),
     case Client#client.password of
-        "undefined" ->
+        undefined ->
             UpdatedClients = maps:without([Name], State#state.clients),
             log(State#state.log_file, "Temporary user \"~s\" logged out", [Name]),
             {reply, ok, State#state{clients = UpdatedClients}};
