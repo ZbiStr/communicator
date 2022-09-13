@@ -3,7 +3,6 @@
 
 -export([start/0]).
 
-
 start() ->
     Wx = wx:new(),
     Frame = wx:batch(fun() -> create_window(Wx) end),
@@ -18,7 +17,7 @@ create_window(Wx) ->
     wxFrame:createStatusBar(Frame,[]),
     wxFrame:connect(Frame, close_window),
 
-    Image = wxImage:new("erlangpol.png", []),
+    Image = wxImage:new("C:/Users/ecimkat/sprint2/communicator/src/erl.png", []),
     Bitmap = wxBitmap:new(wxImage:scale(Image,
             round(wxImage:getWidth(Image)*0.5),
             round(wxImage:getHeight(Image)*0.5),
@@ -37,6 +36,8 @@ create_window(Wx) ->
 					  {style, ?wxDEFAULT bor ?wxTE_PASSWORD}]),
     Button = wxButton:new(Panel, 4, [{label,"Sign up!"}]),
     wxButton:setToolTip(Button, "Click here to sign up!"),
+    FrameNew = wxFrame:new(Wx, -1, "Erlangpol Communicator", [{size, {310,440}}]),
+    wxButton:connect(Button, command_button_clicked, [{callback, fun handle_click/2}, {userData, #{login => TextCtrl, password => TextCtrl2, oldWindow => Frame, newWindow => FrameNew, env => wx:get_env()}}]),
 
     wxSizer:add(MainSizer, StaticBitmap, []),
     wxSizer:add(Sizer, TextCtrl,  [{flag, ?wxEXPAND}]),
@@ -71,6 +72,15 @@ create_window(Wx) ->
     ok = wxFrame:setStatusText(Frame, "Welcome to Erlangpol Communicator!",[]),
     Frame.
 
+handle_click(#wx{obj = _Button, userData = #{login := TextCtrl, password := TextCtrl2, oldWindow := Frame, newWindow := FrameNew, env := Env}}, _Event) ->
+    wx:set_env(Env),
+    LabelLogin =  wxTextCtrl:getValue(TextCtrl),
+    LabelPassword =  wxTextCtrl:getValue(TextCtrl2),
+    io:format("~p~n", [LabelLogin]),
+    io:format("~p~n", [LabelPassword]),
+    wxWindow:destroy(Frame),
+    wxFrame:show(FrameNew).
+
 loop(Frame) ->
     receive 
   	#wx{event=#wxClose{}} ->
@@ -88,7 +98,6 @@ loop(Frame) ->
 	    io:format("Got ~p ~n", [Msg]),
 	    loop(Frame)
     after 1000 ->
-	io:fwrite("."),
 	loop(Frame)
     end.
 
