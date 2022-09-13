@@ -3,12 +3,12 @@
 
 %% API
 -export([start/1, stop/0]).
--export([connect/3, decode_message/1, call/2, cast/2, active_users/1]).
+-export([connect/3, decode_message/1, call/2, cast/2, login/2, find_password/2, find_user/2, active_users/1, set_password/2, logout/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 -record(client, {pid, socket}).
 -record(state, {port, listen_socket, client_list}).
 
--define(DIVIDER, ";").
+-define(DIVIDER, "~n;~n").
 
 % ================================================================================
 % API CLIENT
@@ -26,10 +26,36 @@ call(Socket, Packet) ->
 	{ok, Reply} = gen_tcp:recv(Socket, 0),
 	Reply.
 
+login(Socket, Args) ->
+	Packet = string:join(["login"] ++ Args, ?DIVIDER),
+	RawReply = call(Socket, Packet),
+	{Reply, _}= tcp_server:decode_message(RawReply),
+	Reply.
+
+find_password(Socket, Args) ->
+	Packet = string:join(["find_password"] ++ Args, ?DIVIDER),
+	RawReply = call(Socket, Packet),
+	{FindPass, _}= tcp_server:decode_message(RawReply),
+	FindPass.
+
+find_user(Socket, Args) ->
+	Packet = string:join(["find_user"] ++ Args, ?DIVIDER),
+	RawReply = call(Socket, Packet),
+	{Reply, _}= tcp_server:decode_message(RawReply),
+	Reply.
+
 active_users(Socket) ->
 	RawReply = call(Socket, "active_users"),
 	{ok, Reply} = decode_message(RawReply),
 	Reply.
+
+set_password(Socket, Args) ->
+	Packet = string:join(["set_password"] ++ Args, ?DIVIDER),
+	cast(Socket, Packet).
+
+logout(Socket, Args) ->
+	Packet = string:join(["logout"] ++ Args, ?DIVIDER),
+	cast(Socket, Packet).
 % ================================================================================
 % API SERVER
 % ================================================================================
@@ -52,12 +78,10 @@ init(Port) ->
 	{ok, #state{port=Port, listen_socket=ListenSocket, client_list=[]}}.
 
 handle_cast({connected, Client}, #state{client_list=ClientList}=State) ->
-	io:format("Client on ~p connected~n", [Client#client.socket]),
 	NewState = State#state{client_list = lists:append(ClientList, [Client])},
 	{noreply, NewState};
 	
 handle_cast({disconnected, ClientSocket}, State) ->
-	io:format("Client on ~p disconnected~n", [ClientSocket]),
 	Clients = lists:keydelete(ClientSocket, #client.socket, State#state.client_list),
 	NewState = State#state{client_list=Clients},
 	{noreply, NewState};
@@ -131,10 +155,6 @@ handleConnection(ClientSocket) ->
 					[Username, IsPassword, Password] = Frame,
 					handle_login(ClientSocket, Username, IsPassword, Password),
 					handleConnection(ClientSocket);
-				{logout, Frame} ->
-					[Username] = Frame,
-					handle_logout(ClientSocket,  Username),
-					handleConnection(ClientSocket);
 				{find_password, Frame} ->
 					[Username] = Frame,
 					handle_find_password(ClientSocket, Username),
@@ -147,6 +167,10 @@ handleConnection(ClientSocket) ->
 					handle_active_users(ClientSocket),
 					handleConnection(ClientSocket);
 				% CASTS
+				{logout, Frame} ->
+					[Username] = Frame,
+					handle_logout(Username),
+					handleConnection(ClientSocket);
 				{set_password, Frame} ->
 					[Username, Password] = Frame,
 					handle_set_password(Username, Password),
@@ -182,10 +206,6 @@ handle_login(ClientSocket, Username, IsPassword, Password) ->
 			gen_tcp:send(ClientSocket, atom_to_list(Atom))
 	end.
 
-handle_logout(ClientSocket, Username) ->
-	Atom = communicator:logout(Username),
-	gen_tcp:send(ClientSocket, atom_to_list(Atom)).
-
 handle_find_password(ClientSocket, Username) ->
 	Atom = communicator:find_password(Username),
 	gen_tcp:send(ClientSocket, atom_to_list(Atom)).
@@ -200,6 +220,9 @@ handle_active_users(ClientSocket) ->
 	gen_tcp:send(ClientSocket, Reply).
 
 % CASTS
+handle_logout(Username) ->
+	communicator:logout(Username).
+
 handle_set_password(Username, Password) ->
 	communicator:set_password(Username, Password).
 

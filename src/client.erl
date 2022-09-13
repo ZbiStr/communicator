@@ -7,7 +7,7 @@
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
 -define(COOKIE, ciasteczko).
--define(DIVIDER, ";").
+-define(DIVIDER, "~n;~n").
 -define(MSG_DELIVERY_TIME, 5000).
 
 -record(data, {
@@ -68,8 +68,7 @@ callback_mode() ->
 	state_functions.
 
 logged_out({call, From}, {login, Username, Password}, Data) ->
-	ReplyRaw = tcp_server:call(Data#data.address, "login" ++ ?DIVIDER ++ Username ++ ?DIVIDER ++ Password),
-	{Reply, _}= tcp_server:decode_message(ReplyRaw),
+	Reply = tcp_server:login(Data#data.address, [Username, Password]),
 	case Reply of
 		ok ->
 			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
@@ -78,22 +77,14 @@ logged_out({call, From}, {login, Username, Password}, Data) ->
 			{keep_state_and_data, {reply, From, Reply}}
 	end;
 logged_out({call, From}, {find_password, Username}, Data) ->
-	ReplyRaw = tcp_server:call(Data#data.address, "find_password" ++ ?DIVIDER ++ Username),
-	{FindPass, _}= tcp_server:decode_message(ReplyRaw),
+	FindPass = tcp_server:find_password(Data#data.address, [Username]),
 	{keep_state_and_data, {reply, From, FindPass}};
 logged_out({call, From}, _, _Data) ->
 	handle_unknown(From).
 
 logged_in({call, From}, logout, Data) ->
-	ReplyRaw = tcp_server:call(Data#data.address, "logout" ++ ?DIVIDER ++ Data#data.username),
-	{Reply, _}= tcp_server:decode_message(ReplyRaw),
-	case Reply of
-		ok ->
-			{next_state, logged_out, Data#data{username = ""}, {reply, From, ok}};
-		_ ->
-			% that would make no sense but it can stay in for now
-			{keep_state_and_data, {reply, From, does_not_exist}}
-	end;
+	tcp_server:logout(Data#data.address, [Data#data.username]),
+	{next_state, logged_out, Data#data{username = ""}, {reply, From, ok}};
 logged_in({call, From}, get_name, Data) ->
 	{keep_state_and_data, {reply, From, Data#data.username}};
 logged_in({call, From}, help, _Data) ->
@@ -115,8 +106,7 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 			communicator:send_message(all, Time, Data#data.username, Message, MsgId),
 			{keep_state, NewData, {reply, From, all}};
 		_ ->
-			ReplyRaw = tcp_server:call(Data#data.address, "find_user" ++ ?DIVIDER ++ To),
-			{Reply, _}= tcp_server:decode_message(ReplyRaw),
+			Reply = tcp_server:find_user(Data#data.address, [To]),
 			case Reply of
 				does_not_exist ->
 					{keep_state_and_data, {reply, From, does_not_exist}};
@@ -134,7 +124,7 @@ logged_in({call, From}, active_users, Data) ->
 	ActiveUsers = tcp_server:active_users(Data#data.address),
 	{keep_state_and_data, {reply, From, ActiveUsers}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
-	tcp_server:cast(Data#data.address, "set_password" ++ ?DIVIDER ++ Data#data.username ++ ?DIVIDER ++ Password),
+	tcp_server:set_password(Data#data.address, [Data#data.username, Password]),
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, history, Data) ->
 	case communicator:find_password(Data#data.username) of
@@ -247,7 +237,7 @@ read_commands(Username) ->
 			NewName = login(),
 			read_commands(NewName);
 		_ ->
-			gen_statem:call(?MODULE, Command),
+			io:format("Not a viable command~n"),
 			read_commands(Username)
 	end.
 

@@ -71,7 +71,7 @@ login(Name, Address, Password) ->
 
 logout(Name) ->
     CodedName = code_to_7_bits(Name),
-    gen_server:call({?SERVER, server_node()}, {logout, CodedName}).
+    gen_server:cast({?SERVER, server_node()}, {logout, CodedName}).
 
 find_password(Name) ->
     CodedName = code_to_7_bits(Name),
@@ -172,19 +172,6 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                     end
             end
     end;
-handle_call({logout, CodedName}, _From, State) ->
-    Name = decode_from_7_bits(CodedName),
-    {ok, Client} = maps:find(Name, State#state.clients),
-    case Client#client.password of
-        undefined ->
-            UpdatedClients = maps:without([Name], State#state.clients),
-            log(State#state.log_file, "Temporary user \"~s\" logged out", [Name]),
-            {reply, ok, State#state{clients = UpdatedClients}};
-        _Password ->
-            log(State#state.log_file, "Registered user \"~s\" logged out", [Name]),
-            UpdatedClients = maps:update(Name, Client#client{address = undefined}, State#state.clients),
-            {reply, ok, State#state{clients = UpdatedClients}}
-    end;
 handle_call({find_password, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
     Client = maps:get(Name, State#state.clients, not_found),
@@ -230,7 +217,20 @@ handle_call(Request, _From, State) ->
     log(State#state.log_file, "Unrecognized call request ~p", [Request]),
     {reply, ok, State}.
 
-
+% CASTS
+handle_cast({logout, CodedName}, State) ->
+    Name = decode_from_7_bits(CodedName),
+    {ok, Client} = maps:find(Name, State#state.clients),
+    case Client#client.password of
+        undefined ->
+            UpdatedClients = maps:without([Name], State#state.clients),
+            log(State#state.log_file, "Temporary user \"~s\" logged out", [Name]),
+            {noreply, State#state{clients = UpdatedClients}};
+        _Password ->
+            log(State#state.log_file, "Registered user \"~s\" logged out", [Name]),
+            UpdatedClients = maps:update(Name, Client#client{address = undefined}, State#state.clients),
+            {noreply, State#state{clients = UpdatedClients}}
+    end;
 handle_cast({set_password, CodedName, CodedPassword}, State) ->
     Name = decode_from_7_bits(CodedName),
     Password = decode_from_7_bits(CodedPassword),
