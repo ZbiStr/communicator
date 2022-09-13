@@ -115,7 +115,9 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 			communicator:send_message(all, Time, Data#data.username, Message, MsgId),
 			{keep_state, NewData, {reply, From, all}};
 		_ ->
-			case communicator:find_user(To) of
+			ReplyRaw = tcp_server:call(Data#data.address, "find_user" ++ ?DIVIDER ++ To),
+			{Reply, _}= tcp_server:decode_message(ReplyRaw),
+			case Reply of
 				does_not_exist ->
 					{keep_state_and_data, {reply, From, does_not_exist}};
 				ok ->
@@ -180,12 +182,13 @@ terminate(_Reason, _State, Data) ->
 		"" ->
 			ok;
 		Username ->
-			try communicator:logout(Username)
+			try tcp_server:call(Data#data.address, "logout" ++ ?DIVIDER ++ Username)
 			catch
 				exit:_ ->
 					ok
 			end
 	end,
+	tcp_server:cast(Data#data.address, "close"),
 	net_kernel:stop().
 
 

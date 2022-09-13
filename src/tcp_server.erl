@@ -122,18 +122,24 @@ handleConnection(ClientSocket) ->
 			
 		{tcp, ClientSocket, Message} ->
 			case decode_message(Message) of
+				% CALLS
 				{login, Frame} ->
 					[Username, IsPassword, Password] = Frame,
-					handle_login(Username, ClientSocket, IsPassword, Password),
+					handle_login(ClientSocket, Username, IsPassword, Password),
 					handleConnection(ClientSocket);
 				{logout, Frame} ->
 					[Username] = Frame,
-					handle_logout(Username, ClientSocket),
+					handle_logout(ClientSocket,  Username),
 					handleConnection(ClientSocket);
 				{find_password, Frame} ->
 					[Username] = Frame,
-					handle_find_password(Username, ClientSocket),
+					handle_find_password(ClientSocket, Username),
 					handleConnection(ClientSocket);
+				{find_user, Frame} ->
+					[Username] = Frame,
+					handle_find_user(ClientSocket, Username),
+					handleConnection(ClientSocket);
+				% CASTS
 				{set_password, Frame} ->
 					[Username, Password] = Frame,
 					handle_set_password(Username, Password),
@@ -158,7 +164,8 @@ disconnect(ClientSocket, _Reason) ->
 	%sendMessage(ClientSocket, Reason),
 	gen_tcp:close(ClientSocket).
 
-handle_login(Username, ClientSocket, IsPassword, Password) ->
+% CALLS
+handle_login(ClientSocket, Username, IsPassword, Password) ->
 	case IsPassword of 
 		"0" ->
 			Atom = communicator:login(Username, ClientSocket, undefined),
@@ -168,14 +175,21 @@ handle_login(Username, ClientSocket, IsPassword, Password) ->
 			gen_tcp:send(ClientSocket, atom_to_list(Atom))
 	end.
 
-handle_logout(Username, ClientSocket) ->
+handle_logout(ClientSocket, Username) ->
 	Atom = communicator:logout(Username),
 	gen_tcp:send(ClientSocket, atom_to_list(Atom)).
 
-handle_find_password(Username, ClientSocket) ->
+handle_find_password(ClientSocket, Username) ->
 	Atom = communicator:find_password(Username),
 	gen_tcp:send(ClientSocket, atom_to_list(Atom)).
 
+handle_find_user(ClientSocket, Username) ->
+	Atom = communicator:find_user(Username),
+	gen_tcp:send(ClientSocket, atom_to_list(Atom)).
+
+% CASTS
 handle_set_password(Username, Password) ->
 	communicator:set_password(Username, Password).
+
+
 
