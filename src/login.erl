@@ -76,6 +76,20 @@ handle_click(#wx{obj = _Button, userData = #{login := TextCtrl, password := Text
     wx:set_env(Env),
     LabelLogin =  wxTextCtrl:getValue(TextCtrl),
     LabelPassword =  wxTextCtrl:getValue(TextCtrl2),
+    case LabelLogin of
+    [] ->
+        Status = "Please enter your login.";
+    _ ->
+        case LabelPassword of
+            [] ->
+                Status = "Please enter your password.";
+            _ ->
+                Status = "Welcome " ++ LabelLogin ++ "! Connected to server."
+                % communicator:create_user(LabelLogin, LabelPassword). || case co odpowie serwer
+                % already_exists, max_reached, 
+        end 
+    end,
+    ok = wxFrame:setStatusText(Frame, Status, []),
     io:format("~p~n", [LabelLogin]),
     io:format("~p~n", [LabelPassword]),
     wxWindow:destroy(Frame),
