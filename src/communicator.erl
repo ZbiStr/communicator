@@ -40,7 +40,7 @@
 -record(client, {
     address = undefined,
     inbox=[],
-    password = "undefined"}).
+    password = undefined}).
 -record(msg_sent, {
 	msg_ref, 
 	timer_ref, 

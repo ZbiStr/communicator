@@ -130,8 +130,8 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 					{keep_state, NewData, {reply, From, private}}
 			end
 	end;
-logged_in({call, From}, active_users, _Data) ->
-	ActiveUsers = communicator:show_active_users(),
+logged_in({call, From}, active_users, Data) ->
+	ActiveUsers = tcp_server:active_users(Data#data.address),
 	{keep_state_and_data, {reply, From, ActiveUsers}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
 	tcp_server:cast(Data#data.address, "set_password" ++ ?DIVIDER ++ Data#data.username ++ ?DIVIDER ++ Password),

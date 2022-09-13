@@ -3,7 +3,7 @@
 
 %% API
 -export([start/1, stop/0]).
--export([connect/3, decode_message/1, call/2, cast/2]).
+-export([connect/3, decode_message/1, call/2, cast/2, active_users/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 -record(client, {pid, socket}).
 -record(state, {port, listen_socket, client_list}).
@@ -26,6 +26,10 @@ call(Socket, Packet) ->
 	{ok, Reply} = gen_tcp:recv(Socket, 0),
 	Reply.
 
+active_users(Socket) ->
+	RawReply = call(Socket, "active_users"),
+	{ok, Reply} = decode_message(RawReply),
+	Reply.
 % ================================================================================
 % API SERVER
 % ================================================================================
@@ -139,6 +143,9 @@ handleConnection(ClientSocket) ->
 					[Username] = Frame,
 					handle_find_user(ClientSocket, Username),
 					handleConnection(ClientSocket);
+				{active_users, _Frame} ->
+					handle_active_users(ClientSocket),
+					handleConnection(ClientSocket);
 				% CASTS
 				{set_password, Frame} ->
 					[Username, Password] = Frame,
@@ -186,6 +193,11 @@ handle_find_password(ClientSocket, Username) ->
 handle_find_user(ClientSocket, Username) ->
 	Atom = communicator:find_user(Username),
 	gen_tcp:send(ClientSocket, atom_to_list(Atom)).
+
+handle_active_users(ClientSocket) ->
+	ActiveUsers = ["ok"] ++ communicator:show_active_users(),
+	Reply = string:join(ActiveUsers, ?DIVIDER),
+	gen_tcp:send(ClientSocket, Reply).
 
 % CASTS
 handle_set_password(Username, Password) ->
