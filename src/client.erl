@@ -2,7 +2,7 @@
 -behaviour(gen_statem).
 
 %% API
--export([start/0, start/1]).
+-export([start/0, start/1, receive_confirmation_from_server/1, receive_message/4]).
 %% CALLBACKS
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
@@ -37,6 +37,15 @@ start() ->
 	greet(),
 	Username = login(),
 	read_commands(Username).
+
+
+receive_message(Time, From, Message, MsgId) ->
+	gen_statem:cast(?MODULE, {message, Time, From, Message, MsgId}).
+
+receive_confirmation_from_server(MsgId) ->
+	io:format("api client conf server~n"),
+	gen_statem:cast(?MODULE, {confirmation_from_server, MsgId}).
+
 
 % ================================================================================
 % CALLBACKS
@@ -99,11 +108,11 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 	case To of 
 		[] ->
 			MsgId = make_ref(),
-			{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
+			{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_timeout, "0", MsgId}),
 			MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, To, Message}},
 			NewOutbox = Data#data.outbox ++ [MsgSent],
 			NewData = Data#data{outbox = NewOutbox},
-			communicator:send_message(all, Time, Data#data.username, Message, MsgId),
+			tcp_server:send_message(Data#data.address, ["0", "all", Time, Data#data.username, Message, ref_to_list(MsgId)]),
 			{keep_state, NewData, {reply, From, all}};
 		_ ->
 			Reply = tcp_server:find_user(Data#data.address, [To]),
@@ -112,11 +121,11 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 					{keep_state_and_data, {reply, From, does_not_exist}};
 				ok ->
 					MsgId = make_ref(),
-					{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
+					{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_timeout, "1", MsgId}),
 					MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, To, Message}},
 					NewOutbox = Data#data.outbox ++ [MsgSent],
 					NewData = Data#data{outbox = NewOutbox},
-					communicator:send_message(To, Time, Data#data.username, Message, MsgId),
+					tcp_server:send_message(Data#data.address, ["1", To, Time, Data#data.username, Message, ref_to_list(MsgId)]),
 					{keep_state, NewData, {reply, From, private}}
 			end
 	end;
@@ -127,37 +136,41 @@ logged_in({call, From}, {set_pass, Password}, Data) ->
 	tcp_server:set_password(Data#data.address, [Data#data.username, Password]),
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, history, Data) ->
-	case communicator:find_password(Data#data.username) of
+	case tcp_server:find_password(Data#data.address, [Data#data.username]) of
 		undefined ->
 			{keep_state_and_data, {reply, From, not_registered}};
-		_ ->
-			{keep_state_and_data, {reply, From, communicator:user_history(Data#data.username)}}
+		defined ->
+			History = tcp_server:user_history(Data#data.address, [Data#data.username]),
+			{keep_state_and_data, {reply, From, History}}
 	end;
 logged_in({call, From}, _, _Data) ->
 	handle_unknown(From);
 
 %%confirmation from server that message was received 
-logged_in(cast, {msg_confirm_from_server, MsgId}, Data) ->
+logged_in(cast, {confirmation_from_server, MsgId}, Data) ->
+	io:format("handle cast client conf server~n"),
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, Data#data.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
 	{keep_state, Data#data{outbox = NewOutBox}};
 
 %%when server doesn't confirm in the time defined in the macro MSG_DELIVERY_TIMER
-logged_in(timeout, {msg_retry, MsgRef}, Data) ->
-	{Message, Outbox1} = take_msg_by_ref(MsgRef, Data#data.outbox),
-	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgRef}),
+logged_in(timeout, {msg_timeout, IsPrivate, MsgId}, Data) ->
+	{Message, Outbox1} = take_msg_by_ref(MsgId, Data#data.outbox),
+	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_timeout, IsPrivate, MsgId}),
 	NewMsg = Message#msg_sent{timer_ref = TimerRef}, 
 	{Time, To, Message_txt} = Message#msg_sent.msg,
 	NewOutbox = Outbox1 ++ [NewMsg],
 	NewData = Data#data{outbox = NewOutbox},
-	communicator:send_message(To, Time, Data#data.username, Message_txt, MsgRef),
+	case IsPrivate of
+		"0" ->
+			tcp_server:send_message(Data#data.address, ["0", "all", Time, Data#data.username, Message_txt, ref_to_list(MsgId)]);
+		"1" ->
+			tcp_server:send_message(Data#data.address, ["1", To, Time, Data#data.username, Message_txt, ref_to_list(MsgId)])
+	end,
 	{keep_state, NewData};
-logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage, MsgId}, _Data) ->
-	From = decode_from_7_bits(CodedFrom),
-	Message = decode_from_7_bits(CodedMessage),
-	Time = decode_from_7_bits(CodedTime),
+logged_in(cast, {message, Time, From, Message, MsgId}, Data) ->
 	io:format("~s - ~s: ~s~n", [Time, From, Message]),
-	communicator:confirm(MsgId),
+	tcp_server:confirmation_from_client(Data#data.address, [ref_to_list(MsgId), Data#data.username]),
     keep_state_and_data;
 logged_in(EventType, EventContent, Data) ->
 	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),
@@ -236,6 +249,9 @@ read_commands(Username) ->
 			greet(),
 			NewName = login(),
 			read_commands(NewName);
+		help ->
+			gen_statem:call(?MODULE, help),
+			read_commands(Username);
 		_ ->
 			io:format("Not a viable command~n"),
 			read_commands(Username)

@@ -118,7 +118,7 @@ send_message_to(To, Time, From, Message, MsgId) ->
             gen_server:cast({?SERVER, server_node()}, {send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId})
     end.
 confirm(MsgId) ->
-    gen_server:cast({?SERVER, server_node()}, {msg_confirm_from_client, MsgId}).
+    gen_server:cast({?SERVER, server_node()}, {msg_confirmation_from_client, MsgId}).
 % ================================================================================
 % CALLBACK
 % ================================================================================
@@ -205,7 +205,7 @@ handle_call({history, CodedUsername}, _From, State) ->
             {reply, CodedHistory, State#state{}};
         [] -> 
             dets:close(Table),
-            {reply, [], State#state{}}
+            {reply, empty, State#state{}}
     end;
 handle_call(get_state, _From, State) ->
     {reply, State, State};
@@ -253,7 +253,7 @@ handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, S
     end,
     % sending sender a confirmation of receiving the message by server 
     {ok, Sender} = maps:find(From, State#state.clients),
-    gen_statem:cast(Sender#client.address, {msg_confirm_from_server, MsgId}),
+    tcp_server:confirmation_from_server(Sender#client.address, [ref_to_list(MsgId)]),
     {noreply, State};
     
 handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) when CodedTo == all ->
@@ -262,7 +262,7 @@ handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId
     Time = decode_from_7_bits(CodedTime),
     ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
     % calling sending function for all users in users list except the sender
-    [send_message_to(Name, Time, From, Message, {MsgId, Name}) || {Name, _Client} <- ListWithoutSender],
+    [send_message_to(Name, Time, From, Message, MsgId) || {Name, _Client} <- ListWithoutSender],
     {noreply, State#state{}};
 handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
     To = decode_from_7_bits(CodedTo),
@@ -275,7 +275,7 @@ handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId
             UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
             {noreply, State#state{clients = UpdatedClients}};
         _ -> % sending message for logged in users
-            gen_statem:cast(Client#client.address, {message, code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message), MsgId}),
+            tcp_server:send_to_client(Client#client.address, [Time, From, Message, ref_to_list(MsgId), To]),
             % outbox update
             {ok, TimeRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
             NewOutbox = #msg_sent{msg_ref = MsgId, timer_ref = TimeRef, msg = {To, Time, From, Message}},
