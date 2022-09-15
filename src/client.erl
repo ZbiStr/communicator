@@ -6,13 +6,11 @@
 %% CALLBACKS
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
--define(COOKIE, ciasteczko).
 -define(DIVIDER, "~n;~n").
 -define(MSG_DELIVERY_TIME, 5000).
 
 -record(data, {
 	username = "" :: string(),
-	address  :: atom(), 
 	outbox :: list()
 }).
 -record(msg_sent, {
@@ -27,7 +25,8 @@
 % ================================================================================
 
 start(Port) ->
-	gen_statem:start_link({local, ?MODULE}, ?MODULE, [{127,0,0,1}, Port, [list, {active, false}]], []),
+	tcp_client:start_link({127,0,0,1}, Port, [list, {active, true}]),
+	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []),
 	greet(),
 	Username = login(),
 	read_commands(Username). 
@@ -38,12 +37,10 @@ start() ->
 	Username = login(),
 	read_commands(Username).
 
-
 receive_message(Time, From, Message, MsgId) ->
 	gen_statem:cast(?MODULE, {message, Time, From, Message, MsgId}).
 
 receive_confirmation_from_server(MsgId) ->
-	io:format("api client conf server~n"),
 	gen_statem:cast(?MODULE, {confirmation_from_server, MsgId}).
 
 
@@ -51,33 +48,14 @@ receive_confirmation_from_server(MsgId) ->
 % CALLBACKS
 % ================================================================================
 
-
-% init([]) ->
-% 	Address = case node() of
-%         'nonode@nohost' ->
-%             start_node();
-%         Node ->
-%             Node
-%     end,
-% 	erlang:set_cookie(local, ?COOKIE),
-% 	{ok, logged_out, #data{address = Address, outbox = []}}.
-
-init([IP, Port, Opts]) ->
-	Socket = tcp_server:connect(IP, Port, Opts),
-	% Address = case node() of
-    %     'nonode@nohost' ->
-    %         start_node();
-    %     Node ->
-    %         Node
-    % end,
-	% erlang:set_cookie(local, ?COOKIE),
-	{ok, logged_out, #data{address = Socket, outbox = []}}.
+init(_Args) ->
+	{ok, logged_out, #data{outbox = []}}.
 
 callback_mode() ->
 	state_functions.
 
 logged_out({call, From}, {login, Username, Password}, Data) ->
-	Reply = tcp_server:login(Data#data.address, [Username, Password]),
+	Reply = tcp_client:login([Username, Password]),
 	case Reply of
 		ok ->
 			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
@@ -85,14 +63,17 @@ logged_out({call, From}, {login, Username, Password}, Data) ->
 		Reply ->
 			{keep_state_and_data, {reply, From, Reply}}
 	end;
-logged_out({call, From}, {find_password, Username}, Data) ->
-	FindPass = tcp_server:find_password(Data#data.address, [Username]),
+logged_out({call, From}, {find_password, Username}, _Data) ->
+	FindPass = tcp_client:find_password([Username]),
 	{keep_state_and_data, {reply, From, FindPass}};
 logged_out({call, From}, _, _Data) ->
-	handle_unknown(From).
+	handle_unknown(From);
+logged_out(info, {reply, Reply}, _Data) ->
+	io:format("Received unknown request: ~p~n", [Reply]),
+	keep_state_and_data.
 
 logged_in({call, From}, logout, Data) ->
-	tcp_server:logout(Data#data.address, [Data#data.username]),
+	tcp_client:logout([Data#data.username]),
 	{next_state, logged_out, Data#data{username = ""}, {reply, From, ok}};
 logged_in({call, From}, get_name, Data) ->
 	{keep_state_and_data, {reply, From, Data#data.username}};
@@ -112,10 +93,10 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 			MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, To, Message}},
 			NewOutbox = Data#data.outbox ++ [MsgSent],
 			NewData = Data#data{outbox = NewOutbox},
-			tcp_server:send_message(Data#data.address, ["0", "all", Time, Data#data.username, Message, ref_to_list(MsgId)]),
+			tcp_client:send_message(["0", "all", Time, Data#data.username, Message, ref_to_list(MsgId)]),
 			{keep_state, NewData, {reply, From, all}};
 		_ ->
-			Reply = tcp_server:find_user(Data#data.address, [To]),
+			Reply = tcp_client:find_user([To]),
 			case Reply of
 				does_not_exist ->
 					{keep_state_and_data, {reply, From, does_not_exist}};
@@ -125,22 +106,22 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 					MsgSent = #msg_sent{msg_ref = MsgId, timer_ref = TimerRef, msg = {Time, To, Message}},
 					NewOutbox = Data#data.outbox ++ [MsgSent],
 					NewData = Data#data{outbox = NewOutbox},
-					tcp_server:send_message(Data#data.address, ["1", To, Time, Data#data.username, Message, ref_to_list(MsgId)]),
+					tcp_client:send_message(["1", To, Time, Data#data.username, Message, ref_to_list(MsgId)]),
 					{keep_state, NewData, {reply, From, private}}
 			end
 	end;
-logged_in({call, From}, active_users, Data) ->
-	ActiveUsers = tcp_server:active_users(Data#data.address),
+logged_in({call, From}, active_users, _Data) ->
+	ActiveUsers = tcp_client:active_users(),
 	{keep_state_and_data, {reply, From, ActiveUsers}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
-	tcp_server:set_password(Data#data.address, [Data#data.username, Password]),
+	tcp_client:set_password([Data#data.username, Password]),
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
 logged_in({call, From}, history, Data) ->
-	case tcp_server:find_password(Data#data.address, [Data#data.username]) of
+	case tcp_client:find_password([Data#data.username]) of
 		undefined ->
 			{keep_state_and_data, {reply, From, not_registered}};
 		defined ->
-			History = tcp_server:user_history(Data#data.address, [Data#data.username]),
+			History = tcp_client:user_history([Data#data.username]),
 			{keep_state_and_data, {reply, From, History}}
 	end;
 logged_in({call, From}, _, _Data) ->
@@ -148,7 +129,6 @@ logged_in({call, From}, _, _Data) ->
 
 %%confirmation from server that message was received 
 logged_in(cast, {confirmation_from_server, MsgId}, Data) ->
-	io:format("handle cast client conf server~n"),
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, Data#data.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
 	{keep_state, Data#data{outbox = NewOutBox}};
@@ -163,15 +143,15 @@ logged_in(timeout, {msg_timeout, IsPrivate, MsgId}, Data) ->
 	NewData = Data#data{outbox = NewOutbox},
 	case IsPrivate of
 		"0" ->
-			tcp_server:send_message(Data#data.address, ["0", "all", Time, Data#data.username, Message_txt, ref_to_list(MsgId)]);
+			tcp_client:send_message(["0", "all", Time, Data#data.username, Message_txt, ref_to_list(MsgId)]);
 		"1" ->
-			tcp_server:send_message(Data#data.address, ["1", To, Time, Data#data.username, Message_txt, ref_to_list(MsgId)])
+			tcp_client:send_message(["1", To, Time, Data#data.username, Message_txt, ref_to_list(MsgId)])
 	end,
 	{keep_state, NewData};
 logged_in(cast, {message, Time, From, Message, MsgId}, Data) ->
 	io:format("~s - ~s: ~s~n", [Time, From, Message]),
-	tcp_server:confirmation_from_client(Data#data.address, [ref_to_list(MsgId), Data#data.username]),
-    keep_state_and_data;
+	tcp_client:confirmation_from_client([ref_to_list(MsgId), Data#data.username]),
+	keep_state_and_data;
 logged_in(EventType, EventContent, Data) ->
 	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),
 	keep_state_and_data.
@@ -185,13 +165,9 @@ terminate(_Reason, _State, Data) ->
 		"" ->
 			ok;
 		Username ->
-			try tcp_server:call(Data#data.address, "logout" ++ ?DIVIDER ++ Username)
-			catch
-				exit:_ ->
-					ok
-			end
+			tcp_client:logout([Username])
 	end,
-	tcp_server:cast(Data#data.address, "close"),
+	% tcp_client:cast("close"),
 	net_kernel:stop().
 
 
@@ -307,18 +283,6 @@ set_pass		to set a new password
 history			to see your message history (only for registered users)
 help			to view this again
 exit			to exit the app~n").
-
-% start_node() ->
-% 	% random lowercase letters
-% 	Name = [96 + rand:uniform(26) || _ <- lists:seq(1,9)],
-% 	try net_kernel:start(list_to_atom(Name), #{name_domain => shortnames}) of
-% 		{ok, _} ->
-% 			{ok, Host} = inet:gethostname(),
-% 			list_to_atom(Name ++ "@" ++ Host)
-% 	catch
-% 		error:{already_started, _Pid} ->
-% 			start_node()
-% 	end.
 
 read(Prompt) ->
 	% 32 to 126
