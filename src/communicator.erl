@@ -87,10 +87,15 @@ show_active_users() ->
 user_history(Username) ->
     CodedUsername = code_to_7_bits(Username),
     History = gen_server:call({?SERVER, server_node()}, {history, CodedUsername}),
-    [{decode_from_7_bits(Time),
-    decode_from_7_bits(From), 
-    decode_from_7_bits(Message)}
-    || {Time, From, Message} <- History].
+    case History of
+        empty ->
+            empty;
+        _ ->
+            [{decode_from_7_bits(Time),
+            decode_from_7_bits(From), 
+            decode_from_7_bits(Message)}
+            || {Time, From, Message} <- History]
+    end.
 
 get_state() ->
     gen_server:call({?SERVER, server_node()}, get_state).
@@ -272,9 +277,11 @@ handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId
     {ok, Client} = maps:find(To, State#state.clients),
     case Client#client.address of
         undefined -> % inbox update for registered & logged out
-            UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, {MsgId, To}}]}, State#state.clients),
+            UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
             {noreply, State#state{clients = UpdatedClients}};
         _ -> % sending message for logged in users
+            timer:sleep(10), % nie wiem naprawde XDDDDD Ale z tym dziala ((((: 
+                             % inaczej badmatch bo gdzieś dokleja "reply", nie mam siły szukać o co chodzi
             tcp_server:send_to_client(Client#client.address, [Time, From, Message, ref_to_list(MsgId), To]),
             % outbox update
             {ok, TimeRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, {MsgId, To}}),

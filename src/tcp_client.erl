@@ -65,10 +65,16 @@ active_users() ->
 	Reply.
 
 user_history(Args) ->
-	Packet = string:join(["user_history"] ++ Args, ?DIVIDER),
-	RawReply = call(Packet),
-	{ok, Reply} = decode_message(RawReply),
-	Reply.
+    Packet = string:join(["user_history"] ++ Args, ?DIVIDER),
+    RawReply = call(Packet),
+    {ok, ListHistory} = decode_message(RawReply),
+	case ListHistory of
+		["empty"] ->
+			empty;
+		_ ->
+			History = divide_list(ListHistory, []),
+			History
+	end.
 
 set_password(Args) ->
 	Packet = string:join(["set_password"] ++ Args, ?DIVIDER),
@@ -132,7 +138,6 @@ client_loop(Socket) ->
 			case decode_message(Message) of
 				% CALL REPLIES FROM SERVER
 				{reply, Frame} ->
-					io:format("Reply frame: ~p~n", [Frame]),
 					handle_reply(string:join(Frame, ?DIVIDER)),
 					client_loop(Socket);
 				% CASTS FROM SERVER
@@ -174,3 +179,14 @@ decode_message(Message) ->
 	[H|Frame] = string:split(Message,?DIVIDER, all),
 	Atom = list_to_atom(H),
 	{Atom, Frame}.
+
+divide_list(List, Acc) ->
+	case List of
+		[] ->
+			Acc;
+		_ ->
+			Next = lists:sublist(List, 3),
+			[Time, From, Message] = Next,
+			NewAcc = Acc ++ [{Time, From, Message}],
+			divide_list(List -- Next, NewAcc)
+	end.

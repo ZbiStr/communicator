@@ -111,7 +111,6 @@ handleConnection(ClientSocket) ->
 			gen_tcp:close(ClientSocket);
 			
 		{tcp, ClientSocket, Message} ->
-			io:format("tcp case ~s~n", [Message]),
 			case decode_message(Message) of
 				% CALLS
 				{login, Frame} ->
@@ -196,8 +195,15 @@ handle_active_users(ClientSocket) ->
 	gen_tcp:send(ClientSocket, "reply" ++ ?DIVIDER ++ Reply).
 
 handle_user_history(ClientSocket, Username) ->
-	_History = communicator:user_history(Username),
-	gen_tcp:send(ClientSocket, "reply" ++ ?DIVIDER ++ atom_to_list(ok)).
+    History = communicator:user_history(Username),
+	case History of
+		empty ->
+			gen_tcp:send(ClientSocket, "reply" ++ ?DIVIDER ++ "ok" ++ ?DIVIDER ++ "empty");
+		_ ->
+			PreStringHistory = ["ok"] ++ [string:join([Time, From, Message], ?DIVIDER) || {Time, From, Message} <- History],
+			StringHistory = string:join(PreStringHistory, ?DIVIDER),
+			gen_tcp:send(ClientSocket, "reply" ++ ?DIVIDER ++ StringHistory)
+	end.
 
 % CASTS
 handle_logout(Username) ->

@@ -212,7 +212,7 @@ read_commands(Username) ->
 			History = gen_statem:call(?MODULE, history),
 			case History of
 				not_registered -> io:format("Only registered users have access to messagess history.~n");
-				[] -> io:format("Your history is empty.~n");
+				empty -> io:format("Your history is empty.~n");
 				_ -> 
 					[io:format("~s - ~s: ~s~n", [Time, 
 						From, 
