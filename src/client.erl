@@ -2,7 +2,7 @@
 -behaviour(gen_statem).
 
 %% API
--export([start/0]).
+-export([start/0, start_link/0, login/2]).
 %% CALLBACKS
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
@@ -32,8 +32,15 @@
 start() ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []),
 	greet(),
+	login:start_link(),
+	{Username, Password} = login:get_login(),
+	io:format("....... ~p ~p ~n", [Username, Password]),
+	login:stop(),
 	Username = login(),
 	read_commands(Username).
+
+start_link() ->
+	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 % ================================================================================
 % CALLBACKS
@@ -246,6 +253,20 @@ read_commands(Username) ->
 			gen_statem:call(?MODULE, Command),
 			read_commands(Username)
 	end.
+
+login(Username, Password) ->
+	Reply = gen_statem:call(?MODULE, {login, Username, Password}),
+	case Reply of
+		max_reached ->
+			io:format("Maximum number of logged in clients reached~n");
+		already_exists ->
+			io:format("Username already logged on~n");
+		wrong_password ->
+			io:format("Wrong password, try again~n");
+		{ok, ServerName} ->
+			io:format("Connected to server ~s~nFor avaiable commands type ~chelp~c~n", [ServerName, $",$"])
+	end,
+	Reply.
 
 login() ->
 	Prompt = "Please input your username: ",
