@@ -1,23 +1,26 @@
 -module(login).
+-behaviour(gen_server).
+
+-export([start_link/0]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, 
+	 terminate/2, code_change/3, stop/0, get_login/0]).
+
 -include_lib("wx/include/wx.hrl").
+-define(SERVER, ?MODULE).
 
--export([start/0]).
+-record(state, {log, pass, subscribe_click}).
 
-start() ->
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+init([]) ->
     Wx = wx:new(),
-    Frame = wx:batch(fun() -> create_window(Wx) end),
-    wxWindow:show(Frame),
-    loop(Frame),
-    wx:destroy(),
-    ok.
-
-create_window(Wx) ->
     Frame = wxFrame:new(Wx, -1, "Erlangpol Communicator", [{size, {310,440}}]),
     Panel = wxPanel:new(Frame, []),
     wxFrame:createStatusBar(Frame,[]),
-    wxFrame:connect(Frame, close_window),
+    % wxFrame:connect(Frame, close_window),
 
-    Image = wxImage:new("C:/Users/ecimkat/sprint2/communicator/src/erl.png", []),
+    Image = wxImage:new("C:/Users/ecimkat/sprint2/communicator/erl.png", []),
     Bitmap = wxBitmap:new(wxImage:scale(Image,
             round(wxImage:getWidth(Image)*0.5),
             round(wxImage:getHeight(Image)*0.5),
@@ -36,9 +39,6 @@ create_window(Wx) ->
 					  {style, ?wxDEFAULT bor ?wxTE_PASSWORD}]),
     Button = wxButton:new(Panel, 4, [{label,"Sign up!"}]),
     wxButton:setToolTip(Button, "Click here to sign up!"),
-    FrameNew = wxFrame:new(Wx, -1, "Erlangpol Communicator", [{size, {310,440}}]),
-    wxButton:connect(Button, command_button_clicked, [{callback, fun handle_click/2}, {userData, #{login => TextCtrl, password => TextCtrl2, oldWindow => Frame, newWindow => FrameNew, env => wx:get_env()}}]),
-
     wxSizer:add(MainSizer, StaticBitmap, []),
     wxSizer:add(Sizer, TextCtrl,  [{flag, ?wxEXPAND}]),
     wxSizer:add(Sizer2, TextCtrl2, []),
@@ -48,86 +48,78 @@ create_window(Wx) ->
     wxSizer:addSpacer(MainSizer, 10), 
     wxSizer:add(MainSizer, Button, [{flag, ?wxCENTER}]),  
     wxPanel:setSizer(Panel, MainSizer),
-
+    wxSizer:setSizeHints(MainSizer, Panel),
+    wxButton:connect(Button, command_button_clicked),
+    
     MenuBar  = wxMenuBar:new(),
     FileM    = wxMenu:new([]),
     HelpM    = wxMenu:new([]),
-
+    LangM    = wxMenu:new([]),
     % unlike wxwidgets the stock menu items still need text to be given, 
     % although help text does appear
     _QuitMenuItem  = wxMenu:append(FileM, ?wxID_EXIT, "&Quit"),
     % Note the keyboard accelerator
     _AboutMenuItem = wxMenu:append(HelpM, ?wxID_ABOUT, "&About...\tF1"),
+    wxMenu:appendRadioItem(LangM, 1, "EN"), 
+    wxMenu:appendRadioItem(LangM, 2, "PL"), 
 
     wxMenu:appendSeparator(HelpM),    
     ContentsMenuItem = wxMenu:append(HelpM, ?wxID_HELP_CONTENTS, "&Contents"),
     wxMenuItem:enable(ContentsMenuItem, [{enable, false}]),
-
     ok = wxFrame:connect(Frame, command_menu_selected), 
 
     wxMenuBar:append(MenuBar, FileM, "&Menu"),
     wxMenuBar:append(MenuBar, HelpM, "&Help"),
+    wxMenuBar:append(MenuBar, LangM, "&Language"),
     wxFrame:setMenuBar(Frame, MenuBar),
+    ok = wxFrame:setStatusText(Frame, "Welcome to Erlangpol Communicator!", []),
+    
+    wxFrame:show(Frame),
+    % wxFrame:refresh(Frame),
+    {ok, #state{log = TextCtrl, pass = TextCtrl2}}.
 
-    ok = wxFrame:setStatusText(Frame, "Welcome to Erlangpol Communicator!",[]),
-    Frame.
-
-handle_click(#wx{obj = _Button, userData = #{login := TextCtrl, password := TextCtrl2, oldWindow := Frame, newWindow := FrameNew, env := Env}}, _Event) ->
-    wx:set_env(Env),
-    LabelLogin =  wxTextCtrl:getValue(TextCtrl),
-    LabelPassword =  wxTextCtrl:getValue(TextCtrl2),
-    case LabelLogin of
-    [] ->
-        Status = "Please enter your login.";
-    _ ->
-        case LabelPassword of
-            [] ->
-                Status = "Please enter your password.";
-            _ ->
-                Status = "Welcome " ++ LabelLogin ++ "! Connected to server."
-                % communicator:create_user(LabelLogin, LabelPassword). || case co odpowie serwer
-                % already_exists, max_reached, 
-        end 
-    end,
-    ok = wxFrame:setStatusText(Frame, Status, []),
-    io:format("~p~n", [LabelLogin]),
-    io:format("~p~n", [LabelPassword]),
-    wxWindow:destroy(Frame),
-    wxFrame:show(FrameNew).
-
-loop(Frame) ->
-    receive 
-  	#wx{event=#wxClose{}} ->
-  	    io:format("~p Closing window ~n",[self()]),
-  	    wxFrame:destroy(Frame),
-  	    ok;
-	#wx{id=?wxID_EXIT, event=#wxCommand{type=command_menu_selected}} ->
-	    wxWindow:destroy(Frame),
-	    ok;
-	#wx{id=?wxID_ABOUT, event=#wxCommand{type=command_menu_selected}} ->
-	    io:format("Got about ~n", []),
-	    dialog(?wxID_ABOUT, Frame),
-	    loop(Frame);
-	Msg ->
-	    io:format("Got ~p ~n", [Msg]),
-	    loop(Frame)
-    after 1000 ->
-	loop(Frame)
+get_login() ->
+    gen_server:cast(?MODULE, {subscribe_click, self()}),
+    receive
+        button_clicked ->
+            gen_server:call(?MODULE, get_login)
     end.
 
-dialog(?wxID_ABOUT,  Frame) ->
-    Str = string:join(["Welcome to Erlangpol Communicator. ", 
-		       "This is the progress of the work of the two months sprint. ",
-		       "Running under ",
-		       wx_misc:getOsDescription(),
-		       "."], 
-		      ""),
-    MD = wxMessageDialog:new(Frame,
-   			     Str,
-   			     [{style, ?wxOK bor ?wxICON_INFORMATION}, 
-   			      {caption, "About project"}]),
+handle_call(get_login, _, State) ->
+    Rep = {State#state.log, State#state.pass},
+    {reply, Rep, State};
+    
+handle_call(_Request, _From, State) ->
+    Reply = ok,
+    {reply, Reply, State}.
 
-    wxDialog:showModal(MD),
-    wxDialog:destroy(MD).
+handle_cast({subscribe_click, Pid}, State) ->
+    {noreply, State#state{subscribe_click=Pid}};
+handle_cast(stop, State) ->
+    {stop, normal, State}.
 
+handle_event(#wx{event=#wxClose{}}, #state{log = TextCtrl, pass = TextCtrl2} = State) ->
+    io:format("~p Closing window ~n",[self()]),
+    ok = wxFrame:setStatusText("Closing...",[]),
+    {stop, normal, State}.
+
+handle_info(#wx{event = #wxCommand{type = command_button_clicked}}, #state{log = TextCtrl, pass = TextCtrl2, subscribe_click = Pid} = State) ->
+    LabelLogin =  wxTextCtrl:getValue(TextCtrl),
+    LabelPassword =  wxTextCtrl:getValue(TextCtrl2),
+    io:format("Login: ~p~n", [LabelLogin]),
+    io:format("Password: ~p~n", [LabelPassword]),
+    % _Label = "Welcome" ++ LabelLogin + "!",
+    %stop(),
+    Pid ! button_clicked,
+    Reply = State#state{log = LabelLogin, pass = LabelPassword},
+   %{stop, normal, Reply}.
+   {noreply, Reply}.
+
+terminate(normal, _State) ->
+    ok.
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+stop() ->
+    gen_server:cast(?MODULE, stop).   
 
