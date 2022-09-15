@@ -147,8 +147,8 @@ handleConnection(ClientSocket) ->
 					handle_send_message(IsPrivate, To, Time, From, Message_txt, list_to_ref(StringMsgId)),
 					handleConnection(ClientSocket);
 				{confirmation_from_client, Frame} ->
-					[StringMsgId, Username] = Frame,
-					handle_confirmation_from_client({list_to_ref(StringMsgId), Username}),
+					[StringMsgId, ToMsgId] = Frame,
+					handle_confirmation_from_client({list_to_ref(StringMsgId), ToMsgId}),
 					handleConnection(ClientSocket);
 				{close, _Frame} ->
 					gen_server:cast(?MODULE, {disconnected, ClientSocket}),

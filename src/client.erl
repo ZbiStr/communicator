@@ -148,9 +148,9 @@ logged_in(timeout, {msg_timeout, IsPrivate, MsgId}, Data) ->
 			tcp_client:send_message(["1", To, Time, Data#data.username, Message_txt, ref_to_list(MsgId)])
 	end,
 	{keep_state, NewData};
-logged_in(cast, {message, Time, From, Message, MsgId}, Data) ->
+logged_in(cast, {message, Time, From, Message, {MsgId, To}}, _Data) ->
 	io:format("~s - ~s: ~s~n", [Time, From, Message]),
-	tcp_client:confirmation_from_client([ref_to_list(MsgId), Data#data.username]),
+	tcp_client:confirmation_from_client([ref_to_list(MsgId), To]),
 	keep_state_and_data;
 logged_in(EventType, EventContent, Data) ->
 	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),

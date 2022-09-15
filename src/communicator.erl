@@ -27,7 +27,7 @@
 ]).
 
 -define(SERVER, ?MODULE).
--define(NODE_NAME, dzialajkupo).
+-define(NODE_NAME, noplosze).
 -define(COOKIE, ciasteczko).
 -define(MSG_DELIVERY_TIME, 5000).
 
@@ -272,18 +272,18 @@ handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId
     {ok, Client} = maps:find(To, State#state.clients),
     case Client#client.address of
         undefined -> % inbox update for registered & logged out
-            UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
+            UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, {MsgId, To}}]}, State#state.clients),
             {noreply, State#state{clients = UpdatedClients}};
         _ -> % sending message for logged in users
             tcp_server:send_to_client(Client#client.address, [Time, From, Message, ref_to_list(MsgId), To]),
             % outbox update
-            {ok, TimeRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgId}),
-            NewOutbox = #msg_sent{msg_ref = MsgId, timer_ref = TimeRef, msg = {To, Time, From, Message}},
+            {ok, TimeRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, {MsgId, To}}),
+            NewOutbox = #msg_sent{msg_ref = {MsgId, To}, timer_ref = TimeRef, msg = {To, Time, From, Message}},
             UpdatedOutbox = State#state.outbox ++ [NewOutbox],
             {noreply, State#state{outbox = UpdatedOutbox}}
     end;
 
-handle_cast({msg_confirm_from_client, MsgId}, State) ->
+handle_cast({msg_confirmation_from_client, MsgId}, State) ->
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, State#state.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
     log(State#state.log_file, "Message with ID ~p has been delivered", [MsgId]),
