@@ -81,30 +81,6 @@ acceptConnections(ListenSocket) ->
 		{error, closed} -> 
 			gen_tcp:close(ListenSocket)
 	end.
-
-
-	
-% handleHandshake(AcceptedSocket) ->
-% 	inet:setopts(AcceptedSocket, [{active, once}]),
-% 	receive
-% 		{tcp, AcceptedSocket, <<"quit", _/binary>>} ->
-% 			gen_server:cast(?MODULE, {disconnected, AcceptedSocket}),
-% 			gen_tcp:close(AcceptedSocket);
-			
-% 		{tcp, AcceptedSocket, Msg} ->
-% 			case ws_lib:handle_handshake_request(Msg) of
-% 				{ok, Response} ->
-% 					gen_tcp:send(AcceptedSocket, Response),
-% 					handleConnection(AcceptedSocket);
-% 				{error, Response} ->
-% 					gen_tcp:send(AcceptedSocket, Response),
-% 					gen_server:cast(?MODULE, {disconnected, AcceptedSocket}),
-% 					gen_tcp:close(AcceptedSocket)
-% 			end;			
-% 		{error, closed} -> 
-% 			gen_server:cast(?MODULE, {disconnected, AcceptedSocket}),
-% 			gen_tcp:close(AcceptedSocket)
-% 	end.
 	
 handleConnection(ClientSocket) ->
 	inet:setopts(ClientSocket, [{active, true}]),
@@ -182,11 +158,11 @@ disconnect(ClientSocket, _Reason) ->
 handle_login(ClientSocket, Username, IsPassword, Password) ->
 	case IsPassword of 
 		"0" ->
-			Atom = communicator:login(Username, ClientSocket, undefined),
-			gen_tcp:send(ClientSocket, "reply" ++ ?DIVIDER ++ atom_to_list(Atom));
+			{Atom, Argument} = communicator:login(Username, ClientSocket, undefined),
+			gen_tcp:send(ClientSocket, string:join(["reply", atom_to_list(Atom), Argument], ?DIVIDER));
 		"1" ->
-			Atom = communicator:login(Username, ClientSocket, Password),
-			gen_tcp:send(ClientSocket, "reply" ++ ?DIVIDER ++ atom_to_list(Atom))
+			{Atom, Argument} = communicator:login(Username, ClientSocket, Password),
+			gen_tcp:send(ClientSocket, string:join(["reply", atom_to_list(Atom), Argument], ?DIVIDER))
 	end.
 
 handle_find_password(ClientSocket, Username) ->

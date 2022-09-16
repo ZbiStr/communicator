@@ -2,42 +2,47 @@
 -behaviour(gen_statem).
 
 %% API
--export([start/0, start/1, receive_confirmation_from_server/1, receive_message/4, logout/1]).
+-export([start/3, start/1,start/0, receive_confirmation_from_server/1, receive_message/4, logout/1]).
 %% CALLBACKS
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
 -define(DIVIDER, "~n;~n").
 -define(MSG_DELIVERY_TIME, 5000).
--define(ACTIVE_TIME, 5000).
+-define(ACTIVE_TIME, 10000).
 
 -record(data, {
 	username = "" :: string(),
 	outbox :: list(),
-	active_timer_ref = undefined
+	active_timer_ref = undefined,
+	is_buffered = false,
+	buffer :: list()
 }).
 -record(msg_sent, {
-	msg_ref, 
-	timer_ref, 
+	msg_ref,
+	timer_ref,
 	msg
+}).
+-record(prompt, {
+	en :: string(),
+	pl :: string()
 }).
 
 
 % ================================================================================
 % API
 % ================================================================================
-
-start(Port) ->
-	tcp_client:start_link({127,0,0,1}, Port, [list, {active, true}]),
-	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []),
-	greet(),
-	Username = login(),
-	read_commands(Username). 
-
 start() ->
+	start(en).
+
+start(Lang) ->
+	start(Lang, {127,0,0,1}, 9000).
+
+start(Lang, Ip, Port) ->
+	tcp_client:start_link(Ip, Port, [list, {active, true}]),
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []),
-	greet(),
-	Username = login(),
-	read_commands(Username).
+	greet(Lang),
+	Username = login(Lang),
+	read_commands(Lang, Username). 
 
 receive_message(Time, From, Message, MsgId) ->
 	gen_statem:cast(?MODULE, {message, Time, From, Message, MsgId}).
@@ -51,7 +56,7 @@ receive_confirmation_from_server(MsgId) ->
 % ================================================================================
 
 init(_Args) ->
-	{ok, logged_out, #data{outbox = []}}.
+	{ok, logged_out, #data{outbox = [], buffer = []}}.
 
 callback_mode() ->
 	state_functions.
@@ -59,9 +64,8 @@ callback_mode() ->
 logged_out({call, From}, {login, Username, Password}, Data) ->
 	Reply = tcp_client:login([Username, Password]),
 	case Reply of
-		ok ->
+		{ok, _ServerName} ->
 			{ok, TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
-			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
 			{next_state, logged_in, Data#data{username = Username, active_timer_ref = TimerRef}, {reply, From, Reply}};
 		Reply ->
 			{keep_state_and_data, {reply, From, Reply}}
@@ -75,21 +79,14 @@ logged_out(info, {reply, Reply}, _Data) ->
 	io:format("Received unknown request: ~p~n", [Reply]),
 	keep_state_and_data.
 
-logged_in({call, From}, {logout, Username}, Data) ->
-	tcp_client:logout([Username]),
+logged_in({call, From}, logout, Data) ->
+	tcp_client:logout([Data#data.username]),
 	timer:cancel(Data#data.active_timer_ref),
 	{next_state, logged_out, Data#data{username = "", active_timer_ref = undefined}, {reply, From, ok}};
 logged_in({call, From}, get_name, Data) ->
 	{keep_state_and_data, {reply, From, Data#data.username}};
-logged_in({call, From}, help, _Data) ->
-	help(),
-	{keep_state_and_data, {reply, From, ok}};
 logged_in({call, From}, {send, To, Message}, Data) ->
-	{{Y,M,D},{H,Min,S}} = calendar:local_time(),
-	Year = integer_to_list(Y),
-    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
-    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
-    Time =  Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second,
+	Time = get_time(),
 	case To of 
 		[] ->
 			MsgId = make_ref(),
@@ -152,10 +149,25 @@ logged_in(info, {msg_timeout, IsPrivate, MsgId}, Data) ->
 			tcp_client:send_message(["1", To, Time, Data#data.username, Message_txt, ref_to_list(MsgId)])
 	end,
 	{keep_state, NewData};
-logged_in(cast, {message, Time, From, Message, {MsgId, To}}, _Data) ->
+logged_in(cast, {message, Time, From, Message, {MsgId, To}}, Data) ->
 	io:format("~s - ~s: ~s~n", [Time, From, Message]),
 	tcp_client:confirmation_from_client([ref_to_list(MsgId), To]),
+	case Data#data.is_buffered of
+		false ->
+			io:format("~s - ~s: ~s~n", [Time, From, Message]),
+			keep_state_and_data;
+		true ->
+			NewBuffer = Data#data.buffer ++ [[Time, From, Message]],
+			{keep_state, Data#data{buffer = NewBuffer}}
+		end;
+logged_in(cast, {custom_server_message, From, Message}, _Data) ->
+	io:format("!!!~s: ~s!!!~n", [From, Message]),
 	keep_state_and_data;
+logged_in(cast, start_buffer, Data) ->
+	{keep_state, Data#data{is_buffered = true}};
+logged_in(cast, stop_buffer, Data) ->
+	[io:format("~s - ~s: ~s~n", X) || X <- Data#data.buffer],
+	{keep_state, Data#data{is_buffered = false, buffer = []}};
 logged_in(info, i_am_active, Data) ->
 	{ok, TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
 	tcp_client:confirm_activity([Data#data.username]),
@@ -184,122 +196,146 @@ terminate(_Reason, _State, Data) ->
 % ================================================================================
 
 
-read_commands(Username) ->
+read_commands(Lang, Username) ->
 	PromptReadCommands = "@" ++ Username ++ "> ",
-	PromptMessage = "Message> ",
-	Input = read(PromptReadCommands),
+	PromptMessage = read_prompt(Lang, message),
+	Input = read(Lang, PromptReadCommands),
 	[Command, Opts] =
 		[list_to_atom(string:trim(Token)) || Token <- string:split(Input ++ " ", " ")],
-	case Command of
-		exit ->
+	if
+		Command == exit ->
 			gen_statem:stop(?MODULE),
 			exit(normal);
-		send ->
+		Command == send orelse Command == s ->
+			start_buffer(),
 			To = atom_to_list(Opts),
-			Message = read(PromptMessage),
+			Message = read(Lang, PromptMessage),
 			Status = gen_statem:call(?MODULE, {send, To, Message}),
 			case Status of 
 				all->
-						io:format("You sent a message to all users~n");
+					PromptAll = read_prompt(Lang, all),
+					io:format(PromptAll);
 				does_not_exist ->
-						io:format("There is no such user!~n");
+					PromptNotExist = read_prompt(Lang, does_not_exist),
+					io:format(PromptNotExist);
 				private ->
-						io:format("You sent a message to ~p~n", [To])
+					PromptPrivate = read_prompt(Lang, private),
+					io:format(PromptPrivate, [To])
 			end,
-			read_commands(Username);
-		users ->
+			stop_buffer(),
+			read_commands(Lang, Username);
+		Command == users orelse Command == us ->
 			ListOfUsers = gen_statem:call(?MODULE, list_of_users),
-			[io:format("~s: last message sent at: ~s, last login time: ~s, last logout time: ~s~n", 
-					[
-						Name, 
-						LastMsgTime, 
-						LastLoginTime,
-						LastLogoutTime])
-					|| {Name, LastMsgTime, LastLoginTime, LastLogoutTime} <- ListOfUsers],
-			read_commands(Username);
-		set_pass ->
-			PromptSetPass = "Please input desired password: ",
-			Password = read(PromptSetPass),
+			PromptUsers = read_prompt(Lang, users),
+			[io:format(PromptUsers, [Name, LastMessage, LastLogin, LastLogout])
+			|| {Name, LastMessage, LastLogin, LastLogout} <- ListOfUsers],
+			read_commands(Lang, Username);
+		Command == set_pass orelse Command == sp ->
+			PromptSetPass = read_prompt(Lang, set_pass),
+			Password = read(Lang, PromptSetPass),
 			gen_statem:call(?MODULE, {set_pass, Password}),
-			io:format("Password has been set ~n"),
-			read_commands(Username);
-		history ->
+			PromptPassSet = read_prompt(Lang, pass_set),
+			io:format(PromptPassSet),
+			read_commands(Lang, Username);
+		Command == history orelse Command == his ->
 			History = gen_statem:call(?MODULE, history),
 			case History of
-				not_registered -> io:format("Only registered users have access to messagess history.~n");
-				empty -> io:format("Your history is empty.~n");
+				not_registered ->
+					PromptHistoryNR = read_prompt(Lang, history_not_registered),
+					io:format(PromptHistoryNR);
+				empty -> 
+					PromptHistoryEmpty = read_prompt(Lang, empty_history),
+					io:format(PromptHistoryEmpty);
 				_ -> 
 					[io:format("~s - ~s: ~s~n", [Time, 
 						From, 
 						Message])
 					|| {Time, From, Message} <- History]
 			end,
-			read_commands(Username);
-		logout ->
-			logout(Username),
-			greet(),
-			NewName = login(),
-			read_commands(NewName);
-		help ->
-			gen_statem:call(?MODULE, help),
-			read_commands(Username);
-		_ ->
-			io:format("Not a viable command~n"),
-			read_commands(Username)
+			read_commands(Lang, Username);
+		Command == logout orelse Command == lg ->
+			logout(Lang),
+			greet(Lang),
+			NewName = login(Lang),
+			read_commands(Lang, NewName);
+		Command == help ->
+			help(Lang),
+			read_commands(Lang, Username);
+		true ->
+			gen_statem:call(?MODULE, Command),
+			read_commands(Lang, Username)
 	end.
 
-login() ->
-	Prompt = "Please input your username: ",
-	Username = read(Prompt),
-	Inputpass = get_pass(Username),
-	Reply = gen_statem:call(?MODULE, {login, Username, Inputpass}),
+login(Lang) ->
+	Prompt = read_prompt(Lang, login),
+	Username = read(Lang, Prompt),
+	InputPass = get_pass(Lang, Username),
+	Reply = gen_statem:call(?MODULE, {login, Username, InputPass}),
 	case Reply of
-		max_reached ->
-			io:format("Maximum number of logged in clients reached~n"),
-			login();
-		already_exists ->
-			io:format("Username already logged on~n"),
-			login();
-		wrong_password ->
-			io:format("Wrong password, try again~n"),
-			login();
-		ok ->
+		{max_reached, _}->
+			PromptMax = read_prompt(Lang, max_reached),
+			io:format(PromptMax),
+			login(Lang);
+		{already_exists, _}->
+			PromptAlredy = read_prompt(Lang, already_exists),
+			io:format(PromptAlredy),
+			login(Lang);
+		{wrong_password, _}->
+			PromptWrong = read_prompt(Lang, wrong_password),
+			io:format(PromptWrong),
+			login(Lang);
+		{ok, ServerName} ->
+			PromptServer = read_prompt(Lang, server_name),
+			io:format(PromptServer, [ServerName, $",$"]),
 			Username
 	end.
-get_pass(Username) ->
-	Findpass = gen_statem:call(?MODULE, {find_password, Username}),
-	case Findpass of
+get_pass(Lang, Username) ->
+	IsPassword = gen_statem:call(?MODULE, {find_password, Username}),
+	case IsPassword of
 		undefined ->
 			"0" ++ ?DIVIDER ++ "undefined";
 		defined ->
-			io:format("This user is password protected~n"),
-			PromptP = "Please input your password: ",
-			"1" ++ ?DIVIDER ++ read(PromptP)
+			PromptIsPass = read_prompt(Lang, is_password),
+			io:format(PromptIsPass),
+			PromptPass = read_prompt(Lang, password_prompt),
+			"1" ++ ?DIVIDER ++ read(Lang, PromptPass)
 	end.
-logout(Username) ->
-	Reply = gen_statem:call(?MODULE, {logout, Username}),
+logout(Lang) ->
+	Reply = gen_statem:call(?MODULE, logout),
 	case Reply of
 		ok ->
-			io:format("You have been successfully logged out~n");
+			PromptLogout = read_prompt(Lang, ok_logout),
+			io:format(PromptLogout);
 		_ ->
-			io:format("Something went wrong~n")
+			PromptNotOkLogout = read_prompt(Lang, not_ok_logout),
+			io:format(PromptNotOkLogout)
 	end.
 
-greet() ->
-	io:format("~nWelcome to communicator erlang~n").
+greet(Lang) ->
+	Prompt = read_prompt(Lang, greet),
+	io:format(Prompt).
 
-help() ->
-	io:format("You can use the following commands:
-logout			to log out from the server
-send			to send a message to all users
-send Username		to send a message to user called Username
-users			to show the list of active users
-set_pass		to set a new password
-history			to see your message history (only for registered users)
-help			to view this again
-exit			to exit the app~n").
+help(Lang) ->
+	Start = read_prompt(Lang, help),
+	Logout = read_prompt(Lang, help_logout),
+	SendAll = read_prompt(Lang, help_send),
+	SendUser = read_prompt(Lang, help_send_username),
+	Users = read_prompt(Lang, help_users),
+	SetPass = read_prompt(Lang, help_set_pass),
+	History = read_prompt(Lang, help_history),
+	Help = read_prompt(Lang, help_help),
+	Exit = read_prompt(Lang, help_exit),
+	io:format(Start ++
+	"logout (lg)		" ++ Logout ++
+	"send (s)			" ++ SendAll ++
+	"send (s) Username	" ++ SendUser ++
+	"users (us)			" ++ Users ++
+	"set_pass (sp)		" ++ SetPass ++
+	"history (his)		" ++ History ++
+	"help				" ++ Help ++
+	"exit				" ++ Exit).
 
-read(Prompt) ->
+read(Lang, Prompt) ->
 	% 32 to 126
 	Input = string:trim(io:get_line(Prompt), trailing, [$\n]),
 	Check = [32 || _<- Input],
@@ -310,9 +346,9 @@ read(Prompt) ->
 			Input;
 		_ ->
 			io:format("~s~n", [EmptyPrompt ++ Output]),
-			io:format("Wrong character at indicated position~n"),
-			io:format("Try again~n"),
-			read(Prompt)
+			PromptReadWrong = read_prompt(Lang, read_wrong),
+			io:format(PromptReadWrong),
+			read(Lang, Prompt)
 	end.
 
 check(Y) ->
@@ -322,14 +358,6 @@ check(Y) ->
 		true ->
 			94
 	end .
-
-%code_to_7_bits(Input) ->
-%	Bit = <<  <<(A-32)>> || A <- Input>>,
-%	<< <<Code>> || <<_A:1,Code:7>> <= Bit>>.
-
-decode_from_7_bits(Input) ->
-	Bit = << <<0:1,Code:7>> || <<Code>> <= Input>>,
-	[(A+32) || <<A:8>> <= Bit].
 
 take_msg_by_ref(MsgId, Outbox) ->
 	take_msg_by_ref(MsgId, Outbox, []).
@@ -341,3 +369,26 @@ take_msg_by_ref(MsgId, [SentMsg | Tl], Acc) when SentMsg#msg_sent.msg_ref == Msg
 %% no match, test next item
 take_msg_by_ref(MsgId, [H | Tl], Acc) ->
 	take_msg_by_ref(MsgId, Tl, Acc ++ [H]).
+
+get_time() ->
+	{{Y,M,D},{H,Min,S}} = calendar:local_time(),
+	Year = integer_to_list(Y),
+	TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+	[Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+	Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.
+
+start_buffer() ->
+	gen_statem:cast(?MODULE, start_buffer).
+stop_buffer() ->
+	gen_statem:cast(?MODULE, stop_buffer).
+
+read_prompt(Lang, Id) ->
+	{ok, Table} = dets:open_file(prompts, [{file, "prompts"}, {type, set}]),
+	[{Id, Prompt}] = dets:lookup(Table, Id),
+	dets:close(Table),
+	case Lang of
+		en ->
+			Prompt#prompt.en;
+		pl ->
+			Prompt#prompt.pl
+	end.

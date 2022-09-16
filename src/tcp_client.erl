@@ -45,8 +45,8 @@ call(Packet) ->
 login(Args) ->
 	Packet = string:join(["login"] ++ Args, ?DIVIDER),
 	RawReply = call(Packet),
-	{Reply, _}= tcp_client:decode_message(RawReply),
-	Reply.
+	{Reply, [ServerName]}= tcp_client:decode_message(RawReply),
+	{Reply, ServerName}.
 
 find_password(Args) ->
 	Packet = string:join(["find_password"] ++ Args, ?DIVIDER),
@@ -161,7 +161,7 @@ client_loop(Socket) ->
 					handle_automatic_logout(Username),
 					client_loop(Socket);
 				{_, Frame} ->
-					io:format("Unsupported frame:~n~p~n", [Frame]),
+					io:format("Unsupported frame:~n~p~n", [Message]),
 					client_loop(Socket);
 				{error, Reason, Frame} ->
 					io:format("Error! Reason: ~p~n~p~n", [Reason, Frame])
