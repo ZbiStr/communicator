@@ -1,17 +1,19 @@
 -module(login).
--behaviour(gen_server).
+-behaviour(wx_object).
 
 -export([start_link/0]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, 
+-export([init/1, handle_call/3, handle_cast/2, handle_event/2, handle_info/2, 
 	 terminate/2, code_change/3, stop/0, get_login/0]).
 
 -include_lib("wx/include/wx.hrl").
 -define(SERVER, ?MODULE).
-
--record(state, {log, pass, subscribe_click}).
+-define(EN, 20000).
+-define(PL, 20001).
+-define(PRZYCISK, 20002).
+-record(state, {log, pass, win, status, subscribe_click}).
 
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    wx_object:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 init([]) ->
     Wx = wx:new(),
@@ -37,7 +39,7 @@ init([]) ->
 					 {style, ?wxDEFAULT}]),
     TextCtrl2 = wxTextCtrl:new(Panel, 3, [{value, ""}, {size, {310, 25}},
 					  {style, ?wxDEFAULT bor ?wxTE_PASSWORD}]),
-    Button = wxButton:new(Panel, 4, [{label,"Sign up!"}]),
+    Button = wxButton:new(Panel, ?PRZYCISK, [{label,"Sign up!"}]),
     wxButton:setToolTip(Button, "Click here to sign up!"),
     wxSizer:add(MainSizer, StaticBitmap, []),
     wxSizer:add(Sizer, TextCtrl,  [{flag, ?wxEXPAND}]),
@@ -60,23 +62,22 @@ init([]) ->
     _QuitMenuItem  = wxMenu:append(FileM, ?wxID_EXIT, "&Quit"),
     % Note the keyboard accelerator
     _AboutMenuItem = wxMenu:append(HelpM, ?wxID_ABOUT, "&About...\tF1"),
-    wxMenu:appendRadioItem(LangM, 1, "EN"), 
-    wxMenu:appendRadioItem(LangM, 2, "PL"), 
+    wxMenu:appendRadioItem(LangM, ?EN, "EN"), 
+    wxMenu:appendRadioItem(LangM, ?PL, "PL"), 
 
     wxMenu:appendSeparator(HelpM),    
     ContentsMenuItem = wxMenu:append(HelpM, ?wxID_HELP_CONTENTS, "&Contents"),
     wxMenuItem:enable(ContentsMenuItem, [{enable, false}]),
-    ok = wxFrame:connect(Frame, command_menu_selected), 
+    wxFrame:connect(Frame, command_menu_selected, [{skip, true}]),
 
     wxMenuBar:append(MenuBar, FileM, "&Menu"),
     wxMenuBar:append(MenuBar, HelpM, "&Help"),
     wxMenuBar:append(MenuBar, LangM, "&Language"),
     wxFrame:setMenuBar(Frame, MenuBar),
-    ok = wxFrame:setStatusText(Frame, "Welcome to Erlangpol Communicator!", []),
-    
+
     wxFrame:show(Frame),
-    % wxFrame:refresh(Frame),
-    {ok, #state{log = TextCtrl, pass = TextCtrl2}}.
+    wxFrame:refresh(Frame),
+    {Frame, #state{log = TextCtrl, pass = TextCtrl2, win = Frame}}.
 
 get_login() ->
     gen_server:cast(?MODULE, {subscribe_click, self()}),
@@ -98,28 +99,84 @@ handle_cast({subscribe_click, Pid}, State) ->
 handle_cast(stop, State) ->
     {stop, normal, State}.
 
-handle_event(#wx{event=#wxClose{}}, #state{log = TextCtrl, pass = TextCtrl2} = State) ->
+handle_event(#wx{event=#wxClose{}}, State = #state{win=Frame}) ->
     io:format("~p Closing window ~n",[self()]),
-    ok = wxFrame:setStatusText("Closing...",[]),
-    {stop, normal, State}.
+    ok = wxFrame:setStatusText(Frame, "Closing...",[]),
+    {stop, normal, State};
 
-handle_info(#wx{event = #wxCommand{type = command_button_clicked}}, #state{log = TextCtrl, pass = TextCtrl2, subscribe_click = Pid} = State) ->
+handle_event(#wx{id = Id,
+		 event = #wxCommand{type = command_menu_selected}},
+	     State = #state{}) ->
+    case Id of
+            ?wxID_EXIT ->
+                {stop, normal, State};
+            ?wxID_ABOUT ->
+                dialog(?wxID_ABOUT, State#state.win),
+                {noreply, State};
+            ?EN ->
+                wxFrame:setStatusText(State#state.win, "ELOOOO", []),
+                {noreply, State};
+            ?PL ->
+                wxFrame:setStatusText(State#state.win, "SIEMAAA", []),
+                {noreply, State};
+            _ -> 
+                io:format("inne"),
+                {noreply, State}
+    end;
+
+handle_event(#wx{id = ?PRZYCISK, event = #wxCommand{type = command_button_clicked}}, State = #state{log = TextCtrl, pass = TextCtrl2, win = Frame, subscribe_click = Pid}) ->
     LabelLogin =  wxTextCtrl:getValue(TextCtrl),
     LabelPassword =  wxTextCtrl:getValue(TextCtrl2),
-    io:format("Login: ~p~n", [LabelLogin]),
-    io:format("Password: ~p~n", [LabelPassword]),
-    % _Label = "Welcome" ++ LabelLogin + "!",
-    %stop(),
-    Pid ! button_clicked,
-    Reply = State#state{log = LabelLogin, pass = LabelPassword},
-   %{stop, normal, Reply}.
-   {noreply, Reply}.
+    % io:format("Login: ~p~n", [LabelLogin]),
+    % io:format("Password: ~p~n", [LabelPassword]),
+    NewState = case LabelLogin of
+        [] ->
+            Status = "Please enter your login.",
+            State;
+        _ ->
+            case LabelPassword of
+                [] ->
+                    Status = "Please enter your password.",
+                    State;
+                _ ->
+                    % communicator:login(LabelLogin, address, undefined),
+                    % communicator:set_password(LabelLogin, LabelPassword),
+                    % communicator:logout(LabelLogin),
+                    Pid ! button_clicked,
+                    Status = "Welcome " ++ LabelLogin ++ "! Connected to server.",
+                    State#state{log = LabelLogin, pass = LabelPassword}
+            end 
+    end,
+    wxFrame:setStatusText(Frame, Status, []),
+    {noreply, NewState}.
 
-terminate(normal, _State) ->
-    ok.
+handle_info({'EXIT',_, wx_deleted}, State) ->
+    {noreply,State};
+handle_info({'EXIT',_, shutdown}, State) ->
+    {noreply,State};
+handle_info({'EXIT',_, normal}, State) ->
+    {noreply,State}.
+
+terminate(_Reason, State = #state{win=Frame}) ->
+    wxFrame:destroy(Frame),
+    wx:destroy().
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 stop() ->
     gen_server:cast(?MODULE, stop).   
 
+dialog(?wxID_ABOUT,  Frame) ->
+    Str = string:join(["Welcome to Erlangpol Communicator. ", 
+		       "This is the progress of the work of the two months sprint. ",
+		       "Running under ",
+		       wx_misc:getOsDescription(),
+		       "."], 
+		      ""),
+    MD = wxMessageDialog:new(Frame,
+   			     Str,
+   			     [{style, ?wxOK bor ?wxICON_INFORMATION}, 
+   			      {caption, "About project"}]),
+
+    wxDialog:showModal(MD),
+    wxDialog:destroy(MD).

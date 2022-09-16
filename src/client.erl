@@ -32,10 +32,10 @@
 start() ->
 	gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []),
 	greet(),
-	login:start_link(),
-	{Username, Password} = login:get_login(),
-	io:format("....... ~p ~p ~n", [Username, Password]),
-	login:stop(),
+	% login:start_link(),
+	% {Username, Password} = login:get_login(),
+	% io:format("....... ~p ~p ~n", [Username, Password]),
+	% login:stop(),
 	Username = login(),
 	read_commands(Username).
 
@@ -269,10 +269,14 @@ login(Username, Password) ->
 	Reply.
 
 login() ->
-	Prompt = "Please input your username: ",
-	Username = read(Prompt),
-	InputPass = get_pass(Username),
-	Reply = gen_statem:call(?MODULE, {login, Username, InputPass}),
+	% Prompt = "Please input your username: ",
+	login:start_link(),
+	{Username, _} = login:get_login(),
+	login:stop(),
+	% gen_statem:call(?MODULE, {set_pass, Password}),
+	% Username = read(Prompt),
+	Password = get_pass(Username),
+	Reply = gen_statem:call(?MODULE, {login, Username, Password}),
 	case Reply of
 		max_reached ->
 			io:format("Maximum number of logged in clients reached~n"),
