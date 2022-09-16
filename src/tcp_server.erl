@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start/1, stop/0, send_to_client/2, confirmation_from_server/2, automatic_logout/2]).
+-export([start/1, stop/0, send_to_client/2, confirmation_from_server/2, automatic_logout/2, custom_server_message/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 -record(client, {pid, socket}).
 -record(state, {port, listen_socket, client_list}).
@@ -30,6 +30,10 @@ confirmation_from_server(ClientSocket, Args) ->
 
 automatic_logout(ClientSocket, Args) ->
 	Packet = string:join(["automatic_logout"] ++ Args, ?DIVIDER),
+	gen_tcp:send(ClientSocket, Packet).
+
+custom_server_message(ClientSocket, Args) ->
+	Packet = string:join(["custom_server_message"] ++ Args, ?DIVIDER),
 	gen_tcp:send(ClientSocket, Packet).
 
 % ================================================================================

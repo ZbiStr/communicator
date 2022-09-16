@@ -160,8 +160,12 @@ client_loop(Socket) ->
 					[Username] = Frame,
 					handle_automatic_logout(Username),
 					client_loop(Socket);
+				{custom_server_message, Frame} ->
+					[ServerName, MessageTxt] = Frame,
+					handle_custom_server_message(ServerName, MessageTxt),
+					client_loop(Socket);
 				{_, Frame} ->
-					io:format("Unsupported frame:~n~p~n", [Message]),
+					io:format("Unsupported frame:~n~p~n", [Frame]),
 					client_loop(Socket);
 				{error, Reason, Frame} ->
 					io:format("Error! Reason: ~p~n~p~n", [Reason, Frame])
@@ -188,6 +192,9 @@ handle_send_to_client(Time, From, Message, MsgId) ->
 
 handle_automatic_logout(Username) ->
 	client:logout(Username).
+
+handle_custom_server_message(ServerName, MessageTxt) ->
+	client:receive_custom_server_message(ServerName, MessageTxt).
 
 decode_message(Message) ->
 	[H|Frame] = string:split(Message,?DIVIDER, all),

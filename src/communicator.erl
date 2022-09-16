@@ -203,11 +203,7 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
             case Client of
                 not_found ->
                     % Custom message from server
-                    % Przesłać po tcp
-                    % gen_statem:cast(Address, 
-                    %     {custom_server_message,
-                    %     code_to_7_bits(State#state.server_name),
-                    %     code_to_7_bits(State#state.message)}),
+                    tcp_server:custom_server_message(Address, [State#state.server_name, State#state.message]),
                     % starting afk timer
                     {ok, TimeRef} = timer:send_after(?AFK_TIME, {afk_time, Name}),
                     UpdatedClients = maps:put(Name, #client{address = Address, afk_timer = TimeRef, login_time = get_time(), logout_time = "temp"}, State#state.clients),
@@ -223,11 +219,7 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
                             case HashedPass of
                                 SetPass ->
                                     % Custom message from server
-                                    % Funkcja w tcp
-                                    % gen_statem:cast(Address, 
-                                    %     {custom_server_message,
-                                    %     code_to_7_bits(State#state.server_name),
-                                    %     code_to_7_bits(State#state.message)}),
+                                    tcp_server:custom_server_message(Address, [State#state.server_name, State#state.message]),
                                     % automatic messages sending after logging
                                     [send_message_to(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],
                                     % starting afk timer
@@ -355,10 +347,7 @@ handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, S
     {noreply, State#state{clients = UpdateSender}};
 handle_cast(custom_server_message, State) ->
     % calling sending function for all users in users list except the sender
-    [gen_statem:cast(Client#client.address, 
-        {custom_server_message,
-        code_to_7_bits(State#state.server_name),
-        code_to_7_bits(State#state.message)})
+    [tcp_server:custom_server_message(Client#client.address, [State#state.server_name, State#state.message])
     || {_Name, Client} <- maps:to_list(State#state.clients), Client#client.address =/= undefined],
     {noreply, State};
 handle_cast({send_message_to, all, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->

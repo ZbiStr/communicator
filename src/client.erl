@@ -2,7 +2,7 @@
 -behaviour(gen_statem).
 
 %% API
--export([start/3, start/1,start/0, receive_confirmation_from_server/1, receive_message/4, logout/1]).
+-export([start/3, start/1,start/0, receive_confirmation_from_server/1, receive_message/4, logout/1, receive_custom_server_message/2]).
 %% CALLBACKS
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
@@ -49,6 +49,9 @@ receive_message(Time, From, Message, MsgId) ->
 
 receive_confirmation_from_server(MsgId) ->
 	gen_statem:cast(?MODULE, {confirmation_from_server, MsgId}).
+
+receive_custom_server_message(From, Message) ->
+	gen_statem:cast(?MODULE, {custom_server_message, From, Message}).
 
 
 % ================================================================================

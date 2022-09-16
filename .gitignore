@@ -22,4 +22,4 @@ rebar3.crashdump
 messages
 *.log
 erlang_ls.config
-server_status
+server_status*
