@@ -184,7 +184,12 @@ handle_call({find_password, CodedName}, _From, State) ->
         not_found ->
             {reply, undefined, State};
         _ ->
-            {reply, defined, State}
+            case Client#client.password of
+                undefined -> 
+                    {reply, undefined, State};
+                _ -> 
+                    {reply, defined, State}
+            end
         end;
 handle_call({find_user, CodedName}, _From, State) ->
     Name = decode_from_7_bits(CodedName),
