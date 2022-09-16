@@ -11,12 +11,13 @@
 	login/1, 
 	find_password/1, 
 	find_user/1, 
-	active_users/0, 
+	list_of_users/0, 
 	set_password/1, 
 	logout/1, 
 	send_message/1,
 	user_history/1,
-	confirmation_from_client/1
+	confirmation_from_client/1,
+	confirm_activity/1
 ]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 -record(state, {socket, replies}).
@@ -59,10 +60,12 @@ find_user(Args) ->
 	{Reply, _}= tcp_client:decode_message(RawReply),
 	Reply.
 
-active_users() ->
-	RawReply = call("active_users"),
-	{ok, Reply} = decode_message(RawReply),
-	Reply.
+list_of_users() ->
+	RawReply = call("list_of_users"),
+	{ok, ListListOfUsers} = decode_message(RawReply),
+	ListOfUsers = divide_list(ListListOfUsers, [], 4),
+	ListOfUsers.
+
 
 user_history(Args) ->
     Packet = string:join(["user_history"] ++ Args, ?DIVIDER),
@@ -72,7 +75,7 @@ user_history(Args) ->
 		["empty"] ->
 			empty;
 		_ ->
-			History = divide_list(ListHistory, []),
+			History = divide_list(ListHistory, [], 3),
 			History
 	end.
 
@@ -90,6 +93,10 @@ send_message(Args) ->
 
 confirmation_from_client(Args) ->
 	Packet = string:join(["confirmation_from_client"] ++ Args, ?DIVIDER),
+	cast(Packet).
+
+confirm_activity(Args) ->
+	Packet = string:join(["i_am_active"] ++ Args, ?DIVIDER),
 	cast(Packet).
 % ================================================================================
 % CALLBACK
@@ -149,6 +156,10 @@ client_loop(Socket) ->
 					[Time, From, MessageTxt, StringMsgId, ToMsgId] = Frame,
 					handle_send_to_client(Time, From, MessageTxt, {list_to_ref(StringMsgId), ToMsgId}),
 					client_loop(Socket);
+				{automatic_logout, Frame} ->
+					[Username] = Frame,
+					handle_automatic_logout(Username),
+					client_loop(Socket);
 				{_, Frame} ->
 					io:format("Unsupported frame:~n~p~n", [Frame]),
 					client_loop(Socket);
@@ -175,18 +186,29 @@ handle_confirmation_from_server(MsgId) ->
 handle_send_to_client(Time, From, Message, MsgId) ->
 	client:receive_message(Time, From, Message, MsgId).
 
+handle_automatic_logout(Username) ->
+	client:logout(Username).
+
 decode_message(Message) ->
 	[H|Frame] = string:split(Message,?DIVIDER, all),
 	Atom = list_to_atom(H),
 	{Atom, Frame}.
 
-divide_list(List, Acc) ->
+divide_list(List, Acc, NoElem) ->
 	case List of
 		[] ->
 			Acc;
 		_ ->
-			Next = lists:sublist(List, 3),
-			[Time, From, Message] = Next,
-			NewAcc = Acc ++ [{Time, From, Message}],
-			divide_list(List -- Next, NewAcc)
+			case NoElem of
+				3 ->
+					Next = lists:sublist(List, 3),
+					[A, B, C] = Next,
+					NewAcc = Acc ++ [{A, B, C}],
+					divide_list(List -- Next, NewAcc, NoElem);
+				4 ->
+					Next = lists:sublist(List, 4),
+					[A, B, C, D] = Next,
+					NewAcc = Acc ++ [{A, B, C, D}],
+					divide_list(List -- Next, NewAcc, NoElem)
+			end
 	end.

@@ -2,16 +2,18 @@
 -behaviour(gen_statem).
 
 %% API
--export([start/0, start/1, receive_confirmation_from_server/1, receive_message/4]).
+-export([start/0, start/1, receive_confirmation_from_server/1, receive_message/4, logout/1]).
 %% CALLBACKS
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
 -define(DIVIDER, "~n;~n").
 -define(MSG_DELIVERY_TIME, 5000).
+-define(ACTIVE_TIME, 5000).
 
 -record(data, {
 	username = "" :: string(),
-	outbox :: list()
+	outbox :: list(),
+	active_timer_ref = undefined
 }).
 -record(msg_sent, {
 	msg_ref, 
@@ -58,8 +60,9 @@ logged_out({call, From}, {login, Username, Password}, Data) ->
 	Reply = tcp_client:login([Username, Password]),
 	case Reply of
 		ok ->
+			{ok, TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
 			io:format("Connected to server~nFor avaiable commands type ~chelp~c~n", [$",$"]),
-			{next_state, logged_in, Data#data{username = Username}, {reply, From, Reply}};
+			{next_state, logged_in, Data#data{username = Username, active_timer_ref = TimerRef}, {reply, From, Reply}};
 		Reply ->
 			{keep_state_and_data, {reply, From, Reply}}
 	end;
@@ -72,9 +75,10 @@ logged_out(info, {reply, Reply}, _Data) ->
 	io:format("Received unknown request: ~p~n", [Reply]),
 	keep_state_and_data.
 
-logged_in({call, From}, logout, Data) ->
-	tcp_client:logout([Data#data.username]),
-	{next_state, logged_out, Data#data{username = ""}, {reply, From, ok}};
+logged_in({call, From}, {logout, Username}, Data) ->
+	tcp_client:logout([Username]),
+	timer:cancel(Data#data.active_timer_ref),
+	{next_state, logged_out, Data#data{username = "", active_timer_ref = undefined}, {reply, From, ok}};
 logged_in({call, From}, get_name, Data) ->
 	{keep_state_and_data, {reply, From, Data#data.username}};
 logged_in({call, From}, help, _Data) ->
@@ -110,9 +114,9 @@ logged_in({call, From}, {send, To, Message}, Data) ->
 					{keep_state, NewData, {reply, From, private}}
 			end
 	end;
-logged_in({call, From}, active_users, _Data) ->
-	ActiveUsers = tcp_client:active_users(),
-	{keep_state_and_data, {reply, From, ActiveUsers}};
+logged_in({call, From}, list_of_users, _Data) ->
+	ListOfUsers = tcp_client:list_of_users(),
+	{keep_state_and_data, {reply, From, ListOfUsers}};
 logged_in({call, From}, {set_pass, Password}, Data) ->
 	tcp_client:set_password([Data#data.username, Password]),
 	{keep_state_and_data, {reply, From, {ok, Data#data.username}}};
@@ -134,7 +138,7 @@ logged_in(cast, {confirmation_from_server, MsgId}, Data) ->
 	{keep_state, Data#data{outbox = NewOutBox}};
 
 %%when server doesn't confirm in the time defined in the macro MSG_DELIVERY_TIMER
-logged_in(timeout, {msg_timeout, IsPrivate, MsgId}, Data) ->
+logged_in(info, {msg_timeout, IsPrivate, MsgId}, Data) ->
 	{Message, Outbox1} = take_msg_by_ref(MsgId, Data#data.outbox),
 	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_timeout, IsPrivate, MsgId}),
 	NewMsg = Message#msg_sent{timer_ref = TimerRef}, 
@@ -152,8 +156,12 @@ logged_in(cast, {message, Time, From, Message, {MsgId, To}}, _Data) ->
 	io:format("~s - ~s: ~s~n", [Time, From, Message]),
 	tcp_client:confirmation_from_client([ref_to_list(MsgId), To]),
 	keep_state_and_data;
+logged_in(info, i_am_active, Data) ->
+	{ok, TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
+	tcp_client:confirm_activity([Data#data.username]),
+	{keep_state, Data#data{active_timer_ref = TimerRef}};
 logged_in(EventType, EventContent, Data) ->
-	io:format("Received unknown request: ~p, ~p, ~p", [EventType, EventContent, Data]),
+	io:format("Received unknown request: ~p, {~p}, ~p", [EventType, EventContent, Data]),
 	keep_state_and_data.
 
 handle_unknown(From) ->
@@ -200,7 +208,14 @@ read_commands(Username) ->
 			end,
 			read_commands(Username);
 		users ->
-			io:format("List of active users: ~p~n", [gen_statem:call(?MODULE, active_users)]),
+			ListOfUsers = gen_statem:call(?MODULE, list_of_users),
+			[io:format("~s: last message sent at: ~s, last login time: ~s, last logout time: ~s~n", 
+					[
+						Name, 
+						LastMsgTime, 
+						LastLoginTime,
+						LastLogoutTime])
+					|| {Name, LastMsgTime, LastLoginTime, LastLogoutTime} <- ListOfUsers],
 			read_commands(Username);
 		set_pass ->
 			PromptSetPass = "Please input desired password: ",
@@ -221,7 +236,7 @@ read_commands(Username) ->
 			end,
 			read_commands(Username);
 		logout ->
-			logout(),
+			logout(Username),
 			greet(),
 			NewName = login(),
 			read_commands(NewName);
@@ -261,8 +276,8 @@ get_pass(Username) ->
 			PromptP = "Please input your password: ",
 			"1" ++ ?DIVIDER ++ read(PromptP)
 	end.
-logout() ->
-	Reply = gen_statem:call(?MODULE, logout),
+logout(Username) ->
+	Reply = gen_statem:call(?MODULE, {logout, Username}),
 	case Reply of
 		ok ->
 			io:format("You have been successfully logged out~n");

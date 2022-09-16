@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start/1, stop/0, send_to_client/2, confirmation_from_server/2]).
+-export([start/1, stop/0, send_to_client/2, confirmation_from_server/2, automatic_logout/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 -record(client, {pid, socket}).
 -record(state, {port, listen_socket, client_list}).
@@ -26,6 +26,10 @@ send_to_client(ClientSocket, Args) ->
 
 confirmation_from_server(ClientSocket, Args) ->
 	Packet = string:join(["confirmation_from_server"] ++ Args, ?DIVIDER),
+	gen_tcp:send(ClientSocket, Packet).
+
+automatic_logout(ClientSocket, Args) ->
+	Packet = string:join(["automatic_logout"] ++ Args, ?DIVIDER),
 	gen_tcp:send(ClientSocket, Packet).
 
 % ================================================================================
@@ -125,8 +129,8 @@ handleConnection(ClientSocket) ->
 					[Username] = Frame,
 					handle_find_user(ClientSocket, Username),
 					handleConnection(ClientSocket);
-				{active_users, _Frame} ->
-					handle_active_users(ClientSocket),
+				{list_of_users, _Frame} ->
+					handle_list_of_users(ClientSocket),
 					handleConnection(ClientSocket);
 				{user_history, Frame} ->
 					[Username] = Frame,
@@ -148,6 +152,10 @@ handleConnection(ClientSocket) ->
 				{confirmation_from_client, Frame} ->
 					[StringMsgId, ToMsgId] = Frame,
 					handle_confirmation_from_client({list_to_ref(StringMsgId), ToMsgId}),
+					handleConnection(ClientSocket);
+				{i_am_active, Frame} ->
+					[Username] = Frame,
+					handle_confirm_activity(Username),
 					handleConnection(ClientSocket);
 				{close, _Frame} ->
 					gen_server:cast(?MODULE, {disconnected, ClientSocket}),
@@ -189,10 +197,14 @@ handle_find_user(ClientSocket, Username) ->
 	Atom = communicator:find_user(Username),
 	gen_tcp:send(ClientSocket, "reply" ++ ?DIVIDER ++ atom_to_list(Atom)).
 
-handle_active_users(ClientSocket) ->
-	ActiveUsers = ["ok"] ++ communicator:show_active_users(),
-	Reply = string:join(ActiveUsers, ?DIVIDER),
-	gen_tcp:send(ClientSocket, "reply" ++ ?DIVIDER ++ Reply).
+handle_list_of_users(ClientSocket) ->
+	ListOfUsers = communicator:list_of_users(),
+	PreStringListOfUsers = ["ok"] ++ [
+										string:join([Name, LastMsgTime, LastLoginTime, LastLogoutTime], ?DIVIDER) 
+										|| {Name, LastMsgTime, LastLoginTime, LastLogoutTime} <- ListOfUsers],
+	StringListOfUsers = string:join(PreStringListOfUsers, ?DIVIDER),
+	gen_tcp:send(ClientSocket, "reply" ++ ?DIVIDER ++ StringListOfUsers).
+
 
 handle_user_history(ClientSocket, Username) ->
     History = communicator:user_history(Username),
@@ -222,3 +234,6 @@ handle_send_message(IsPrivate, To, Time, From, Message, MsgId) ->
 
 handle_confirmation_from_client(MsgId) ->
 	communicator:confirm(MsgId).
+
+handle_confirm_activity(Username) ->
+	communicator:confirm_activity(Username).

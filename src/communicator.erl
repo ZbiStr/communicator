@@ -10,11 +10,12 @@
     set_password/2, 
     find_password/1, 
     find_user/1, 
-    show_active_users/0, 
+    list_of_users/0, 
     user_history/1, 
     get_state/0, 
     send_message/5, 
     confirm/1, 
+    confirm_activity/1,
     clear_whole_table/0
 ]).
 %% CALLBACK
@@ -29,7 +30,8 @@
 -define(SERVER, ?MODULE).
 -define(NODE_NAME, noplosze).
 -define(COOKIE, ciasteczko).
--define(MSG_DELIVERY_TIME, 5000).
+-define(MSG_DELIVERY_TIME, 10000).
+-define(AFK_TIME, 60000).
 
 -record(state, {
     server_name = undefined,
@@ -40,7 +42,11 @@
 -record(client, {
     address = undefined,
     inbox=[],
-    password = undefined}).
+    password = undefined,
+    afk_timer = undefined, 
+    logout_time = "undefined", 
+    login_time = "undefined", 
+    last_msg_time = "undefined"}).
 -record(msg_sent, {
 	msg_ref, 
 	timer_ref, 
@@ -81,8 +87,8 @@ find_user(Name) ->
     CodedName = code_to_7_bits(Name),
     gen_server:call({?SERVER, server_node()}, {find_user, CodedName}).
 
-show_active_users() ->
-    gen_server:call({?SERVER, server_node()}, show_active_users).
+list_of_users() ->
+    gen_server:call({?SERVER, server_node()}, list_of_users).
 
 user_history(Username) ->
     CodedUsername = code_to_7_bits(Username),
@@ -124,6 +130,9 @@ send_message_to(To, Time, From, Message, MsgId) ->
     end.
 confirm(MsgId) ->
     gen_server:cast({?SERVER, server_node()}, {msg_confirmation_from_client, MsgId}).
+
+confirm_activity(Name) ->
+    gen_server:cast({?SERVER, server_node()}, {i_am_active, Name}).
 % ================================================================================
 % CALLBACK
 % ================================================================================
@@ -152,7 +161,9 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
             Client = maps:get(Name, State#state.clients, not_found),
             case Client of
                 not_found ->
-                    UpdatedClients = maps:put(Name, #client{address = Address}, State#state.clients),
+                    log(State#state.log_file, "Temporary user \"~s\" logged on from \"~w\"", [Name, Address]),
+                    {ok, TimeRef} = timer:send_after(?AFK_TIME, {afk_time, Name}),
+                    UpdatedClients = maps:put(Name, #client{address = Address, afk_timer = TimeRef, login_time = get_time(), logout_time = "temp"}, State#state.clients),
                     log(State#state.log_file, "Temporary user \"~s\" logged on from \"~w\"", [Name, Address]),
                     {reply, ok, State#state{clients = UpdatedClients}};
                 _ ->
@@ -164,7 +175,15 @@ handle_call({login, CodedName, Address, CodedPassword}, _From, State) ->
                                 SetPass ->
                                     % automatic messages sending after logging
                                     [send_message_to(Name, Time, From, Message, MsgId) || {Time, From, Message, MsgId} <- Client#client.inbox],
-                                    UpdatedClients = maps:update(Name, Client#client{address = Address, inbox = []}, State#state.clients),
+                                    % starting afk timer
+                                    {ok, TimeRef} = timer:send_after(?AFK_TIME, {afk_time, Name}),
+                                    UpdatedClients = maps:update(Name, Client#client{
+                                        address = Address, 
+                                        inbox = [], 
+                                        afk_timer = TimeRef,
+                                        login_time = get_time(),
+                                        logout_time = "active"
+                                    }, State#state.clients),
                                     log(State#state.log_file, "Registered user \"~s\" logged on from \"~w\"", [Name, Address]),
                                     {reply, ok, State#state{clients = UpdatedClients}};
                                 _ ->
@@ -194,11 +213,16 @@ handle_call({find_user, CodedName}, _From, State) ->
         _Client ->
             {reply, ok, State#state{}}
     end;
-handle_call(show_active_users, _From, State) ->
-    log(State#state.log_file, "Show active users called", []),
-    ListOfUsers = maps:to_list(State#state.clients),
-    ActiveUsers = [ Name || {Name, Client} <- ListOfUsers, Client#client.address =/= undefined ],
-    {reply, ActiveUsers, State#state{}};
+handle_call(list_of_users, _From, State) ->
+    log(State#state.log_file, "List of users called", []),
+    MapToList = maps:to_list(State#state.clients),
+    ListOfUsers = [ {
+                        Name, 
+                        Client#client.last_msg_time, 
+                        Client#client.login_time, 
+                        Client#client.logout_time
+                    } || {Name, Client} <- MapToList ],
+    {reply, ListOfUsers, State#state{}};
 handle_call({history, CodedUsername}, _From, State) ->
     Username = decode_from_7_bits(CodedUsername),
     log(State#state.log_file, "User \"~s\" requested his massage history", [Username]),
@@ -233,7 +257,7 @@ handle_cast({logout, CodedName}, State) ->
             {noreply, State#state{clients = UpdatedClients}};
         _Password ->
             log(State#state.log_file, "Registered user \"~s\" logged out", [Name]),
-            UpdatedClients = maps:update(Name, Client#client{address = undefined}, State#state.clients),
+            UpdatedClients = maps:update(Name, Client#client{address = undefined, logout_time = get_time()}, State#state.clients),
             {noreply, State#state{clients = UpdatedClients}}
     end;
 handle_cast({set_password, CodedName, CodedPassword}, State) ->
@@ -259,7 +283,8 @@ handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, S
     % sending sender a confirmation of receiving the message by server 
     {ok, Sender} = maps:find(From, State#state.clients),
     tcp_server:confirmation_from_server(Sender#client.address, [ref_to_list(MsgId)]),
-    {noreply, State};
+    UpdateSender = maps:update(From, Sender#client{last_msg_time = Time}, State#state.clients),
+    {noreply, State#state{clients = UpdateSender}};
     
 handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) when CodedTo == all ->
     From = decode_from_7_bits(CodedFrom),
@@ -309,6 +334,17 @@ handle_cast({msg_confirmation_from_client, MsgId}, State) ->
                             {noreply, State#state{outbox = NewOutBox}}
             end
     end;
+handle_cast({i_am_active, Name}, State) ->
+    Client = maps:get(Name, State#state.clients, not_found),
+    case Client of
+        not_found ->
+            {noreply, State};
+        _ ->
+            timer:cancel(Client#client.afk_timer),
+            {ok, NewTimeRef} = timer:send_after(?AFK_TIME, {afk_time, Name}),
+            UpdatedClients = maps:update(Name, Client#client{afk_timer = NewTimeRef}, State#state.clients),
+            {noreply, State#state{clients = UpdatedClients}}
+    end;
 handle_cast(Msg, State) ->
     log(State#state.log_file, "Unrecognized cast request ~w", [Msg]),
     {noreply, State}.
@@ -321,6 +357,11 @@ handle_info({msg_retry, MsgId}, State) ->
 	NewOutbox = Outbox1 ++ [NewMsg],
 	send_message_to(To, Time, From, Message_txt, MsgId),
 	{noreply, State#state{outbox = NewOutbox}};
+handle_info({afk_time, Name}, State) ->
+    {ok, Client} = maps:find(Name, State#state.clients),
+    tcp_server:automatic_logout(Client#client.address, [Name]),
+    log(State#state.log_file, "User \"~s\" has been automatically logged out", [Name]),
+	{noreply, State};
 handle_info(Info, State) ->
     log(State#state.log_file, "Unrecognized info request ~w", [Info]),
     {noreply, State}.
@@ -374,6 +415,13 @@ code_to_7_bits(Input) ->
 decode_from_7_bits(Input) ->
 	Bit = << <<0:1,Code:7>> || <<Code>> <= Input>>,
 	[(A+32) || <<A:8>> <= Bit].
+
+get_time() ->
+    {{Y,M,D},{H,Min,S}} = calendar:local_time(),
+    Year = integer_to_list(Y),
+    TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
+    [Month,Day,Hour,Minute,Second] = [lists:sublist(X, lists:flatlength(X) - 1, 2) || X <- TempTime],
+    Year ++ "/" ++ Month ++ "/" ++ Day ++ " " ++ Hour ++ ":" ++ Minute ++ ":" ++ Second.
 
 load_configuration(ConfigPath) ->
     try file:open(ConfigPath, [read]) of
