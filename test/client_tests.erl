@@ -27,7 +27,7 @@ all_test_() ->
 			fun login_with_correctpass/0,
 			fun login_already_exists/0,
 			fun find_user/0,
-			fun show_active_users/0,
+			fun list_of_users/0,
 			fun send/0,
 			fun logout/0,
 			fun help/0,
@@ -50,7 +50,8 @@ start_system() ->
 	% separate nodes for client2 and server
 	{ok, NodeClient2} = slave:start(Host, ?CLIENT2, Args),
 	{ok, NodeServer} = slave:start(Host, ?SERVER, Args),
-
+	%{ok, _} = rpc:call(NodeServer, communicator, clear_whole_table, [server_status, "server_status"]).
+	ok = communicator:clear_whole_table(server_status, "server_status"),
 	{ok, _} = gen_statem:start({local, client}, client, [], []),
 	{ok, _} = rpc:call(NodeClient2, gen_statem, start, [{local, client}, client, [], []]),
 	{ok, _} = rpc:call(NodeServer, gen_server, start, [{local, communicator}, communicator, [], []]).
@@ -59,7 +60,8 @@ stop_system(_) ->
 	ok = gen_server:stop({communicator, get_node(?SERVER)}),
 	ok = gen_statem:stop({client, get_node(?CLIENT2)}),
 	% must be stopped last cause currently it also stops its node (the master node of these tests)
-	ok = gen_statem:stop(client).
+	ok = gen_statem:stop(client),
+	ok = communicator:clear_whole_table(server_status, "server_status").
 
 % TESTCASES
 
@@ -91,9 +93,18 @@ find_user() ->
 	{ok, _} = gen_statem:call(client, {login, ?NAME1, undefined}),
 	?NAME1 = gen_statem:call(client, get_name).
 
-show_active_users() ->
+list_of_users() ->
 	{ok, _} = gen_statem:call(client, {login, ?NAME1, undefined}),
-	[?NAME1] = gen_statem:call(client, active_users).
+	[{?NAME1, "undefined", _, "temp"}] = gen_statem:call(client, list_of_users),
+
+	{ok, _} = gen_statem:call(client, {set_pass, ?PASSWORD}),
+	[{?NAME1, "undefined", _, "active"}] = gen_statem:call(client, list_of_users),
+
+	all = gen_statem:call(client, {send, [], ?MESSAGE}),
+	[{?NAME1, _, _, "active"}] = gen_statem:call(client, list_of_users),
+
+	{ok, _} = gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME2, undefined}),
+	[{?NAME1, _, _, "active"}, {?NAME2, "undefined", _, "temp"}] = gen_statem:call(client, list_of_users).
 
 send() ->
 	{ok, _} = gen_statem:call(client, {login, ?NAME1, undefined}),
@@ -130,7 +141,7 @@ unknown_command() ->
 	unknown = gen_statem:call(client, not_a_command).
 
 history() ->
-	communicator:clear_whole_table(),
+	communicator:clear_whole_table(messages,"messages"),
 	{ok, _} = gen_statem:call(client, {login, ?NAME1, undefined}),
 	{ok, _} = gen_statem:call({client, get_node(?CLIENT2)}, {login, ?NAME2, undefined}),
 	not_registered = gen_statem:call({client, get_node(?CLIENT2)}, history),
