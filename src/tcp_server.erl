@@ -98,8 +98,8 @@ handleConnection(ClientSocket) ->
 			case decode_message(Message) of
 				% CALLS
 				{login, Frame} ->
-					[Username, IsPassword, Password] = Frame,
-					handle_login(ClientSocket, Username, IsPassword, Password),
+					[Username, IsPassword, EncryptedPass] = Frame,
+					handle_login(ClientSocket, Username, IsPassword, EncryptedPass),
 					handleConnection(ClientSocket);
 				{find_password, Frame} ->
 					[Username] = Frame,
@@ -115,6 +115,10 @@ handleConnection(ClientSocket) ->
 				{user_history, Frame} ->
 					[Username] = Frame,
 					handle_user_history(ClientSocket, Username),
+					handleConnection(ClientSocket);
+				{make_key, Frame} ->
+					[Username] = Frame,
+					handle_make_key(ClientSocket, Username),
 					handleConnection(ClientSocket);
 				% CASTS
 				{logout, Frame} ->
@@ -159,13 +163,13 @@ disconnect(ClientSocket, _Reason) ->
 	gen_tcp:close(ClientSocket).
 
 % CALLS
-handle_login(ClientSocket, Username, IsPassword, Password) ->
+handle_login(ClientSocket, Username, IsPassword, EncryptedPass) ->
 	case IsPassword of 
 		"0" ->
 			{Atom, Argument} = communicator:login(Username, ClientSocket, undefined),
 			gen_tcp:send(ClientSocket, string:join(["reply", atom_to_list(Atom), Argument], ?DIVIDER));
 		"1" ->
-			{Atom, Argument} = communicator:login(Username, ClientSocket, Password),
+			{Atom, Argument} = communicator:login(Username, ClientSocket, EncryptedPass),
 			gen_tcp:send(ClientSocket, string:join(["reply", atom_to_list(Atom), Argument], ?DIVIDER))
 	end.
 
@@ -196,6 +200,11 @@ handle_user_history(ClientSocket, Username) ->
 			StringHistory = string:join(PreStringHistory, ?DIVIDER),
 			gen_tcp:send(ClientSocket, "reply" ++ ?DIVIDER ++ StringHistory)
 	end.
+
+handle_make_key(ClientSocket, Username) ->
+	PubKey = communicator:make_key(Username),
+	[A,B] = PubKey,
+	gen_tcp:send(ClientSocket, string:join(["pubkey", [A], [B]], ?DIVIDER)).
 
 % CASTS
 handle_logout(Username) ->

@@ -85,53 +85,33 @@ stop(Lang) ->
     io:format(Prompt).
 
 login(Name, Address, Password) ->
-    CodedName = code_to_7_bits(Name),
-    case Password of
-        undefined ->
-            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, undefined});
-        _ ->
-            CodedPass = code_to_7_bits(Password),
-            PubKey = make_key(Name),
-            EncryptedPass = rsa_encrypt(CodedPass, PubKey),
-            gen_server:call({?SERVER, server_node()}, {login, CodedName, Address, EncryptedPass})
-    end.
+    gen_server:call({?SERVER, server_node()}, {login, Name, Address, Password}).
 
 logout(Name) ->
-    CodedName = code_to_7_bits(Name),
-    gen_server:cast({?SERVER, server_node()}, {logout, CodedName}).
+    gen_server:cast({?SERVER, server_node()}, {logout, Name}).
 
-set_password(Name, Password) ->
-    CodedPass = code_to_7_bits(Password),
-    PubKey = communicator:make_key(Name),
-    EncryptedPass = rsa_encrypt(CodedPass, PubKey),
-    CodedName = code_to_7_bits(Name),
-    gen_server:cast({?SERVER, server_node()}, {set_password, CodedName, EncryptedPass}).
+set_password(Name, EncryptedPass) ->
+    gen_server:cast({?SERVER, server_node()}, {set_password, Name, EncryptedPass}).
 
 make_key(Name) ->
-    CodedName = code_to_7_bits(Name),
-    gen_server:call({?SERVER, server_node()}, {make_key, CodedName}).
+    gen_server:call({?SERVER, server_node()}, {make_key, Name}).
 
 find_password(Name) ->
-    CodedName = code_to_7_bits(Name),
-    gen_server:call({?SERVER, server_node()}, {find_password, CodedName}).
+    gen_server:call({?SERVER, server_node()}, {find_password, Name}).
 
 find_user(Name) ->
-    CodedName = code_to_7_bits(Name),
-    gen_server:call({?SERVER, server_node()}, {find_user, CodedName}).
+    gen_server:call({?SERVER, server_node()}, {find_user, Name}).
 
 list_of_users() ->
     gen_server:call({?SERVER, server_node()}, list_of_users).
 
 user_history(Username) ->
-    CodedUsername = code_to_7_bits(Username),
-    History = gen_server:call({?SERVER, server_node()}, {history, CodedUsername}),
+    History = gen_server:call({?SERVER, server_node()}, {history, Username}),
     case History of
         empty ->
             empty;
         _ ->
-            [{decode_from_7_bits(Time),
-            decode_from_7_bits(From), 
-            decode_from_7_bits(Message)}
+            [{Time, From, Message}
             || {Time, From, Message} <- History]
     end.
 
@@ -139,21 +119,14 @@ get_state() ->
     gen_server:call({?SERVER, server_node()}, get_state).
 
 send_message(To, Time, From, Message, MsgId) ->
-    CodedFrom = code_to_7_bits(From),
-    CodedMessage = code_to_7_bits(Message),
-    CodedTime = code_to_7_bits(Time),
-    gen_server:cast({?SERVER, server_node()}, {confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}).
+    gen_server:cast({?SERVER, server_node()}, {confirm_and_send, To, Time, From, Message, MsgId}).
 
 send_message_to(To, Time, From, Message, MsgId) ->
-    CodedFrom = code_to_7_bits(From),
-    CodedMessage = code_to_7_bits(Message),
-    CodedTime = code_to_7_bits(Time),
     case To of
         all ->
-            gen_server:cast({?SERVER, server_node()}, {send_message_to, To, CodedTime, CodedFrom, CodedMessage, MsgId});
+            gen_server:cast({?SERVER, server_node()}, {send_message_to, To, Time, From, Message, MsgId});
         _ ->
-            CodedTo = code_to_7_bits(To),
-            gen_server:cast({?SERVER, server_node()}, {send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId})
+            gen_server:cast({?SERVER, server_node()}, {send_message_to, To, Time, From, Message, MsgId})
     end.
 
 change_message(Message) ->
@@ -189,8 +162,7 @@ init(_Args) ->
         message = CustomMessage,
         clients = RegisteredUsers}}.
 
-handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
-    Name = decode_from_7_bits(CodedName),
+handle_call({login, Name, Address, EncryptedPass}, _From, State) ->
     ListOfUsers = maps:to_list(State#state.clients),
     ActiveUsers = [ Name1 || {Name1, Client} <- ListOfUsers, Client#client.address =/= undefined ],
     NumberOfActiveUsers = length(ActiveUsers),
@@ -214,8 +186,7 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
                         undefined ->
                             SetPass = Client#client.password,
                             DecryptedPass = rsa_decrypt(EncryptedPass, Client#client.private_key),
-                            DecodedPass = decode_from_7_bits(DecryptedPass),
-                            HashedPass = crypto:hash(sha256, DecodedPass),
+                            HashedPass = crypto:hash(sha256, DecryptedPass),
                             case HashedPass of
                                 SetPass ->
                                     % Custom message from server
@@ -243,14 +214,12 @@ handle_call({login, CodedName, Address, EncryptedPass}, _From, State) ->
                     end
             end
     end;
-handle_call({make_key, CodedName}, _From, State) ->
-    Name = decode_from_7_bits(CodedName),
+handle_call({make_key, Name}, _From, State) ->
     Client = maps:get(Name, State#state.clients),
     {PubKey, PrivKey} = crypto:generate_key(rsa, {1024,65537}),
     UpdatedClients = maps:put(Name, Client#client{private_key = PrivKey}, State#state.clients),
     {reply, PubKey, State#state{clients = UpdatedClients}};
-handle_call({find_password, CodedName}, _From, State) ->
-    Name = decode_from_7_bits(CodedName),
+handle_call({find_password, Name}, _From, State) ->
     Client = maps:get(Name, State#state.clients, not_found),
     case Client of
         not_found ->
@@ -263,8 +232,7 @@ handle_call({find_password, CodedName}, _From, State) ->
                     {reply, defined, State}
             end
         end;
-handle_call({find_user, CodedName}, _From, State) ->
-    Name = decode_from_7_bits(CodedName),
+handle_call({find_user, Name}, _From, State) ->
     case maps:get(Name, State#state.clients, not_found) of
         not_found ->
             {reply, does_not_exist, State#state{}};
@@ -281,15 +249,13 @@ handle_call(list_of_users, _From, State) ->
                         Client#client.logout_time
                     } || {Name, Client} <- MapToList ],
     {reply, ListOfUsers, State#state{}};
-handle_call({history, CodedUsername}, _From, State) ->
-    Username = decode_from_7_bits(CodedUsername),
+handle_call({history, Username}, _From, State) ->
     log(State#state.log_file, "User \"~s\" requested his massage history", [Username]),
     {ok, Table} = dets:open_file(messages, [{file, "messages"}, {type, set}]),
     case dets:lookup(messages, Username) of
         [{Username, History}] ->
-            CodedHistory = [ {code_to_7_bits(Time), code_to_7_bits(From), code_to_7_bits(Message)} || {Time, From, Message} <- History ],
             dets:close(Table),
-            {reply, CodedHistory, State#state{}};
+            {reply, History, State#state{}};
         [] -> 
             dets:close(Table),
             {reply, empty, State#state{}}
@@ -305,8 +271,7 @@ handle_call(Request, _From, State) ->
     {reply, ok, State}.
 
 % CASTS
-handle_cast({logout, CodedName}, State) ->
-    Name = decode_from_7_bits(CodedName),
+handle_cast({logout, Name}, State) ->
     {ok, Client} = maps:find(Name, State#state.clients),
     case Client#client.password of
         undefined ->
@@ -318,19 +283,14 @@ handle_cast({logout, CodedName}, State) ->
             UpdatedClients = maps:update(Name, Client#client{address = undefined, logout_time = get_time()}, State#state.clients),
             {noreply, State#state{clients = UpdatedClients}}
     end;
-handle_cast({set_password, CodedName, EncryptedPass}, State) ->
-    Name = decode_from_7_bits(CodedName),
+handle_cast({set_password, Name, EncryptedPass}, State) ->
     Client = maps:get(Name, State#state.clients),
     DecryptedPass = rsa_decrypt(EncryptedPass, Client#client.private_key),
-    DecodedPass = decode_from_7_bits(DecryptedPass),
-    HashedPass = crypto:hash(sha256, DecodedPass),
+    HashedPass = crypto:hash(sha256, DecryptedPass),
     UpdatedClients = maps:put(Name, Client#client{password = HashedPass, logout_time = "active"}, State#state.clients),
     log(State#state.log_file, "User \"~s\" registered (set password)", [Name]),
     {noreply, State#state{clients = UpdatedClients}};
-handle_cast({confirm_and_send, To, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
-    From = decode_from_7_bits(CodedFrom),
-    Message = decode_from_7_bits(CodedMessage),
-    Time = decode_from_7_bits(CodedTime),
+handle_cast({confirm_and_send, To, Time, From, Message, MsgId}, State) ->
     % calling the actual sending function
     send_message_to(To, Time, From, Message, MsgId),
     case To of
@@ -350,19 +310,12 @@ handle_cast(custom_server_message, State) ->
     [tcp_server:custom_server_message(Client#client.address, [State#state.server_name, State#state.message])
     || {_Name, Client} <- maps:to_list(State#state.clients), Client#client.address =/= undefined],
     {noreply, State};
-handle_cast({send_message_to, all, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
-    From = decode_from_7_bits(CodedFrom),
-    Message = decode_from_7_bits(CodedMessage),
-    Time = decode_from_7_bits(CodedTime),
+handle_cast({send_message_to, all, Time, From, Message, MsgId}, State) ->
     ListWithoutSender = maps:to_list(maps:without([From], State#state.clients)), 
     % calling sending function for all users in users list except the sender
     [send_message_to(Name, Time, From, Message, MsgId) || {Name, _Client} <- ListWithoutSender],
     {noreply, State#state{}};
-handle_cast({send_message_to, CodedTo, CodedTime, CodedFrom, CodedMessage, MsgId}, State) ->
-    To = decode_from_7_bits(CodedTo),
-    From = decode_from_7_bits(CodedFrom),
-    Message = decode_from_7_bits(CodedMessage),
-    Time = decode_from_7_bits(CodedTime),
+handle_cast({send_message_to, To, Time, From, Message, MsgId}, State) ->
     {ok, Client} = maps:find(To, State#state.clients),
     case Client#client.address of
         undefined -> % inbox update for registered & logged out
@@ -493,19 +446,9 @@ take_msg_by_ref(MsgId, [SentMsg | Tl], Acc) when SentMsg#msg_sent.msg_ref == Msg
 take_msg_by_ref(MsgId, [H | Tl], Acc) ->
 	take_msg_by_ref(MsgId, Tl, Acc ++ [H]).
 
-code_to_7_bits(Input) ->
-	Bit = <<  <<(A-32)>> || A <- Input>>,
-	<< <<Code>> || <<_A:1,Code:7>> <= Bit>>.
-
-decode_from_7_bits(Input) ->
-	Bit = << <<0:1,Code:7>> || <<Code>> <= Input>>,
-	[(A+32) || <<A:8>> <= Bit].
-
 rsa_decrypt(EncPass, Priv) ->
-    crypto:private_decrypt(rsa, EncPass, Priv, [{rsa_padding,rsa_pkcs1_padding},{rsa_pad, rsa_pkcs1_padding}]).
-
-rsa_encrypt(Password, PubKey) ->
-    crypto:public_encrypt(rsa, Password, PubKey, [{rsa_padding,rsa_pkcs1_padding},{rsa_mgf1_md, sha}]).
+    BinPass = list_to_binary(EncPass),
+    crypto:private_decrypt(rsa, BinPass, Priv, [{rsa_padding,rsa_pkcs1_padding},{rsa_pad, rsa_pkcs1_padding}]).
 
 get_time() ->
     {{Y,M,D},{H,Min,S}} = calendar:local_time(),

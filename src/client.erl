@@ -296,12 +296,14 @@ get_pass(Lang, Username) ->
 	IsPassword = gen_statem:call(?MODULE, {find_password, Username}),
 	case IsPassword of
 		undefined ->
-			"0" ++ ?DIVIDER ++ "undefined";
+			{0, undefined};
+			%"0" ++ ?DIVIDER ++ "undefined";
 		defined ->
 			PromptIsPass = read_prompt(Lang, is_password),
 			io:format(PromptIsPass),
 			PromptPass = read_prompt(Lang, password_prompt),
-			"1" ++ ?DIVIDER ++ read(Lang, PromptPass)
+			{1, read(Lang, PromptPass)}
+			%"1" ++ ?DIVIDER ++ read(Lang, PromptPass)
 	end.
 logout(Lang) ->
 	Reply = gen_statem:call(?MODULE, logout),

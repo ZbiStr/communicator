@@ -43,10 +43,20 @@ call(Packet) ->
 	get_reply().
 
 login(Args) ->
-	Packet = string:join(["login"] ++ Args, ?DIVIDER),
-	RawReply = call(Packet),
-	{Reply, [ServerName]}= tcp_client:decode_message(RawReply),
-	{Reply, ServerName}.
+	[Username, TuplePassword] = Args,
+	case TuplePassword of 
+		{0, undefined} ->
+			Packet = string:join(["login", Username, "0", "undefined"], ?DIVIDER),
+			RawReply = call(Packet),
+			{Reply, [ServerName]}= tcp_client:decode_message(RawReply),
+			{Reply, ServerName};
+		{1, Password} ->
+			EncryptedPass = code_pass(Username, Password),
+			Packet = string:join(["login", Username, "1", EncryptedPass], ?DIVIDER),
+			RawReply = call(Packet),
+			{Reply, [ServerName]}= tcp_client:decode_message(RawReply),
+			{Reply, ServerName}
+	end.
 
 find_password(Args) ->
 	Packet = string:join(["find_password"] ++ Args, ?DIVIDER),
@@ -79,8 +89,15 @@ user_history(Args) ->
 			History
 	end.
 
+code_pass(Username, Password) ->
+	Packet = string:join(["make_key", Username], ?DIVIDER),
+	PubKey = call(Packet),
+	rsa_encrypt(Password, PubKey).
+
 set_password(Args) ->
-	Packet = string:join(["set_password"] ++ Args, ?DIVIDER),
+	[Username, Password] = Args,
+	EncryptedPass = code_pass(Username, Password),
+	Packet = string:join(["set_password", Username, EncryptedPass], ?DIVIDER),
 	cast(Packet).
 
 logout(Args) ->
@@ -98,6 +115,7 @@ confirmation_from_client(Args) ->
 confirm_activity(Args) ->
 	Packet = string:join(["i_am_active"] ++ Args, ?DIVIDER),
 	cast(Packet).
+
 % ================================================================================
 % CALLBACK
 % ================================================================================
@@ -144,6 +162,11 @@ client_loop(Socket) ->
 		{tcp, Socket, Message} ->
 			case decode_message(Message) of
 				% CALL REPLIES FROM SERVER
+				{pubkey, RawPubKey} ->
+					[A, B] = RawPubKey,
+					PubKey = [list_to_binary(A), list_to_binary(B)],
+					handle_reply(PubKey),
+					client_loop(Socket);
 				{reply, Frame} ->
 					handle_reply(string:join(Frame, ?DIVIDER)),
 					client_loop(Socket);
@@ -219,3 +242,7 @@ divide_list(List, Acc, NoElem) ->
 					divide_list(List -- Next, NewAcc, NoElem)
 			end
 	end.
+
+rsa_encrypt(Password, PubKey) ->
+	BinPass = term_to_binary(Password),
+    crypto:public_encrypt(rsa, BinPass, PubKey, [{rsa_padding,rsa_pkcs1_padding},{rsa_mgf1_md, sha}]).
