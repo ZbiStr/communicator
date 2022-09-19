@@ -6,7 +6,7 @@
 %% CALLBACKS
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
--define(DIVIDER, "~n;~n").
+% -define(DIVIDER, "~n;~n").
 -define(MSG_DELIVERY_TIME, 5000).
 -define(ACTIVE_TIME, 10000).
 
@@ -153,7 +153,6 @@ logged_in(info, {msg_timeout, IsPrivate, MsgId}, Data) ->
 	end,
 	{keep_state, NewData};
 logged_in(cast, {message, Time, From, Message, {MsgId, To}}, Data) ->
-	io:format("~s - ~s: ~s~n", [Time, From, Message]),
 	tcp_client:confirmation_from_client([ref_to_list(MsgId), To]),
 	case Data#data.is_buffered of
 		false ->

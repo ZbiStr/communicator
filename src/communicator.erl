@@ -34,8 +34,8 @@
 -define(SERVER, ?MODULE).
 -define(NODE_NAME, dzialajkupo).
 -define(COOKIE, ciasteczko).
--define(MSG_DELIVERY_TIME, 5000).
--define(AFK_TIME, 120000).
+-define(MSG_DELIVERY_TIME, 10000).
+-define(AFK_TIME, 1000).
 
 -record(state, {
     server_name = undefined,
@@ -333,7 +333,7 @@ handle_cast({send_message_to, To, Time, From, Message, MsgId}, State) ->
     end;
 handle_cast({change_message, Message}, State) ->
     {noreply, State#state{message = Message}};
-handle_cast({msg_confirm_from_client, MsgId}, State) ->
+handle_cast({msg_confirmation_from_client, MsgId}, State) ->
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, State#state.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
     log(State#state.log_file, "Message with ID ~p has been delivered", [MsgId]),
@@ -376,8 +376,9 @@ handle_info({msg_retry, MsgId}, State) ->
 	send_message_to(To, Time, From, Message_txt, MsgId_ref),
 	{noreply, State#state{outbox = NewOutbox}};
 handle_info({afk_time, Name}, State) ->
-    {ok, Client} = maps:find(Name, State#state.clients),
-    tcp_server:automatic_logout(Client#client.address, [Name]),
+    %{ok, Client} = maps:find(Name, State#state.clients),
+    logout(Name),
+    % tcp_server:automatic_logout(Client#client.address, [Name]),
     log(State#state.log_file, "User \"~s\" has been automatically logged out", [Name]),
 	{noreply, State};
 handle_info(Info, State) ->

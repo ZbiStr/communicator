@@ -179,10 +179,10 @@ client_loop(Socket) ->
 					[Time, From, MessageTxt, StringMsgId, ToMsgId] = Frame,
 					handle_send_to_client(Time, From, MessageTxt, {list_to_ref(StringMsgId), ToMsgId}),
 					client_loop(Socket);
-				{automatic_logout, Frame} ->
-					[Username] = Frame,
-					handle_automatic_logout(Username),
-					client_loop(Socket);
+				% {automatic_logout, Frame} ->
+				% 	[Username] = Frame,
+				% 	handle_automatic_logout(Username),
+				% 	client_loop(Socket);
 				{custom_server_message, Frame} ->
 					[ServerName, MessageTxt] = Frame,
 					handle_custom_server_message(ServerName, MessageTxt),
@@ -213,8 +213,8 @@ handle_confirmation_from_server(MsgId) ->
 handle_send_to_client(Time, From, Message, MsgId) ->
 	client:receive_message(Time, From, Message, MsgId).
 
-handle_automatic_logout(Username) ->
-	client:logout(Username).
+% handle_automatic_logout(Username) ->
+% 	client:logout(Username).
 
 handle_custom_server_message(ServerName, MessageTxt) ->
 	client:receive_custom_server_message(ServerName, MessageTxt).
