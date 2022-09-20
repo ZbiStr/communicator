@@ -273,6 +273,7 @@ handle_call(Request, _From, State) ->
 % CASTS
 handle_cast({logout, Name}, State) ->
     {ok, Client} = maps:find(Name, State#state.clients),
+    timer:cancel(Client#client.afk_timer),
     case Client#client.password of
         undefined ->
             UpdatedClients = maps:without([Name], State#state.clients),
@@ -280,7 +281,7 @@ handle_cast({logout, Name}, State) ->
             {noreply, State#state{clients = UpdatedClients}};
         _Password ->
             log(State#state.log_file, "Registered user \"~s\" logged out", [Name]),
-            UpdatedClients = maps:update(Name, Client#client{address = undefined, logout_time = get_time()}, State#state.clients),
+            UpdatedClients = maps:update(Name, Client#client{address = undefined, logout_time = get_time(), afk_timer = undefined}, State#state.clients),
             {noreply, State#state{clients = UpdatedClients}}
     end;
 handle_cast({set_password, Name, EncryptedPass}, State) ->
