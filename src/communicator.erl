@@ -34,8 +34,8 @@
 -define(SERVER, ?MODULE).
 -define(NODE_NAME, erlangpol).
 -define(COOKIE, ciasteczko).
--define(MSG_DELIVERY_TIME, 5000).
--define(AFK_TIME, 120000000).
+-define(MSG_DELIVERY_TIME, 1000).
+-define(AFK_TIME, 10000).
 
 -record(state, {
     server_name = undefined,
@@ -318,6 +318,7 @@ handle_call(Request, _From, State) ->
 handle_cast({logout, CodedName}, State) ->
     Name = decode_from_7_bits(CodedName),
     {ok, Client} = maps:find(Name, State#state.clients),
+    timer:cancel(Client#client.afk_timer),
     case Client#client.password of
         undefined ->
             UpdatedClients = maps:without([Name], State#state.clients),

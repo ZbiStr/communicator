@@ -7,15 +7,16 @@
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
 -define(COOKIE, ciasteczko).
--define(MSG_DELIVERY_TIME, 5000).
--define(ACTIVE_TIME, 1000000).
+-define(MSG_DELIVERY_TIME, 1000).
+-define(ACTIVE_TIME, 2000).
 
 -record(data, {
 	username = "" :: string(),
 	address  :: atom(), 
 	outbox :: list(),
 	is_buffered = false,
-	buffer :: list()
+	buffer :: list(),
+	active_timer_ref = undefined
 }).
 -record(msg_sent, {
 	msg_ref,
@@ -62,8 +63,8 @@ callback_mode() ->
 logged_out({call, From}, {login, Username, Password}, Data) ->
 	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
 		{ok, ServerName} ->
-			{ok, _TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
-			{next_state, logged_in, Data#data{username = Username}, {reply, From, {ok, ServerName}}};
+			{ok, TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
+			{next_state, logged_in, Data#data{username = Username, active_timer_ref = TimerRef}, {reply, From, {ok, ServerName}}};
 		Reply ->
 			{keep_state_and_data, {reply, From, Reply}}
 	end;
@@ -71,12 +72,14 @@ logged_out({call, From}, _, _Data) ->
 	handle_unknown(From).
 
 logged_in({call, From}, logout, Data) ->
+	timer:cancel(Data#data.active_timer_ref),
 	case communicator:logout(Data#data.username) of
 		ok ->
-			{next_state, logged_out, Data#data{username = ""}, {reply, From, ok}};
+			{next_state, logged_out, Data#data{username = "", active_timer_ref = undefined}, {reply, From, ok}};
 		_ ->
 			% that would make no sense but it can stay in for now
-			{keep_state_and_data, {reply, From, does_not_exist}}
+			{ok, TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
+			{keep_state, Data#data{active_timer_ref = TimerRef}, {reply, From, does_not_exist}}
 	end;
 logged_in({call, From}, get_name, Data) ->
 	{keep_state_and_data, {reply, From, Data#data.username}};
@@ -128,7 +131,7 @@ logged_in(cast, {msg_confirm_from_server, MsgId}, Data) ->
 	{keep_state, Data#data{outbox = NewOutBox}};
 
 %%when server doesn't confirm in the time defined in the macro MSG_DELIVERY_TIMER
-logged_in(timeout, {msg_retry, MsgRef}, Data) ->
+logged_in(info, {msg_retry, MsgRef}, Data) ->
 	{Message, Outbox1} = take_msg_by_ref(MsgRef, Data#data.outbox),
 	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgRef}),
 	NewMsg = Message#msg_sent{timer_ref = TimerRef}, 
@@ -137,7 +140,7 @@ logged_in(timeout, {msg_retry, MsgRef}, Data) ->
 	NewData = Data#data{outbox = NewOutbox},
 	communicator:send_message(To, Time, Data#data.username, Message_txt, MsgRef),
 	{keep_state, NewData};
-logged_in(timeout, i_am_active, Data) ->
+logged_in(info, i_am_active, Data) ->
 	{ok, _TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
 	communicator:confirm_activity(Data#data.username),
 	keep_state_and_data;
