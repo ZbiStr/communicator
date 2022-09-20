@@ -6,6 +6,17 @@ Niniejszy dokument zawiera instrukcję użytkownika dla klienta komunikatora int
 
 ## Opis interfejsu użytkownika
 
+Przy uruchomieniu programu za pomocą skryptu, pojawia się komunikat:
+
+```erlang
+Select your language
+pl -polski
+en -english
+Option:
+```
+
+Należy podać odpowiedni skrót języka, który użytkownik chce wybrać. 
+
 Po uruchomieniu programu pojawi się komunikat:
 
 ```
@@ -13,7 +24,14 @@ Witaj w komunikatorze Erlangpol!
 Prosze wpisz swoja nazwe uzytkownika:
 ``` 
 
+
 Po którym należy podać nazwę użytkownika. 
+Po wpisaniu nazwy użytkownika, klient wyświetla Wiadomość Dnia. Domyślna Wiadomość dnia jest następująca:
+
+```
+!!!Erlangpol server: In this server we slay our enemies!!!
+```
+
 Jeśli nazwa jest zabezpieczona hasłem, pojawi się komunikat:
 
 ```
@@ -99,6 +117,8 @@ W przypadku, gdy użytkownik nie istnieje w systemie, pojawi się komunikat:
 Nie ma takiego uzytkownika!
 ```
 
+> **Uwaga:** W programie został zaimplementowany bufor. Oznacza to, że terminal jest zablokowany, dopóki użytkownik nie wyśle wiadomości. Oznacza to też, że użytkownik nie dostanie w tym czasie żadnej wiadomości przesłanych przez innych użytkowników.
+
 Po wybraniu opcji `users`  wyświetlona zostanie lista aktualnie zalogowanych użytkowników:
 
 ```
@@ -158,6 +178,7 @@ Not a viable command
 ## Polecenia interfejsu użytkownika
 
 ### help - wyświetlenie dostępnych komend wraz z opisem
+
 Użytkownik wpisuje polecenie `help`. Klient wyświetli wszystkie dostępne komendy wraz z opisem funkcjonalności.
 
 ### send - wysłanie wiadomości do wszystkich zalogowanych użytkowników

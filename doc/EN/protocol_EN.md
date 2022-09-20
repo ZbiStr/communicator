@@ -99,6 +99,7 @@ Server ->> Client: ok
 ```
 
 The client calls the server function in the form of set_password(Name, Password). In response, the server sends "ok".
+Asymetric encryption was used. Additionally, instead of full passwords, hashes are stored.
 
 ### history
 

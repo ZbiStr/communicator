@@ -14,22 +14,10 @@ rebar3 do compile
 
 ## Setup instruction
 
-To run the application, execute the following commands in the command line:
-```erlang
-rebar3 shell
-```
+To start the server, double click the 'run_server.sh' file.
 
-Then, to run the server, execute the following command in the command line:
+To start the client, double click the 'run_client.sh' file.
 
-```erlang
-communicator:start_link().
-```
-
-To run the client, execute the following in the command line:
-
-```erlang
-client:start().
-```
 >**Disclaimer:** In order for the app to work properly, the server and the client **must**  be running on separate terminals. The server should be executed first.
 
 ## Test run instruction
