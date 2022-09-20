@@ -72,7 +72,7 @@ init([]) ->
 
     wxMenuBar:append(MenuBar, FileM, "&Menu"),
     wxMenuBar:append(MenuBar, HelpM, "&Help"),
-    wxMenuBar:append(MenuBar, LangM, "&Language"),
+    % wxMenuBar:append(MenuBar, LangM, "&Language"),
     wxFrame:setMenuBar(Frame, MenuBar),
 
     wxFrame:show(Frame),
@@ -87,6 +87,12 @@ get_login() ->
     end.
 
 handle_call(get_login, _, State) ->
+    % case State#state.pass of 
+    %     [] ->
+    %         {reply, {State#state.log, undefined}, State};
+    %     _ ->
+    %         {reply, {State#state.log, State#state.pass}, State}
+    % end;
     Rep = {State#state.log, State#state.pass},
     {reply, Rep, State};
     
@@ -113,12 +119,12 @@ handle_event(#wx{id = Id,
             ?wxID_ABOUT ->
                 dialog(?wxID_ABOUT, State#state.win),
                 {noreply, State};
-            ?EN ->
-                wxFrame:setStatusText(State#state.win, "ELOOOO", []),
-                {noreply, State};
-            ?PL ->
-                wxFrame:setStatusText(State#state.win, "SIEMAAA", []),
-                {noreply, State};
+            % ?EN ->
+            %     wxFrame:setStatusText(State#state.win, "ELOOOO", []),
+            %     {noreply, State};
+            % ?PL ->
+            %     wxFrame:setStatusText(State#state.win, "SIEMAAA", []),
+            %     {noreply, State};
             _ -> 
                 io:format("inne"),
                 {noreply, State}
@@ -136,8 +142,11 @@ handle_event(#wx{id = ?PRZYCISK, event = #wxCommand{type = command_button_clicke
         _ ->
             case LabelPassword of
                 [] ->
-                    Status = "Please enter your password.",
-                    State;
+                    % Status = "Please enter your password.",
+                    % State;
+                    Pid ! button_clicked,
+                    Status = "Welcome " ++ LabelLogin ++ "! Connected to server.",
+                    State#state{log = LabelLogin, pass = undefined};
                 _ ->
                     % communicator:login(LabelLogin, address, undefined),
                     % communicator:set_password(LabelLogin, LabelPassword),
@@ -157,7 +166,7 @@ handle_info({'EXIT',_, shutdown}, State) ->
 handle_info({'EXIT',_, normal}, State) ->
     {noreply,State}.
 
-terminate(_Reason, State = #state{win=Frame}) ->
+terminate(_Reason, _State = #state{win=Frame}) ->
     wxFrame:destroy(Frame),
     wx:destroy().
 code_change(_OldVsn, State, _Extra) ->

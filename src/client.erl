@@ -269,13 +269,28 @@ login(Username, Password) ->
 	Reply.
 
 login() ->
+	timer:sleep(10),
 	% Prompt = "Please input your username: ",
 	login:start_link(),
-	{Username, _} = login:get_login(),
+	{Username, Password} = login:get_login(),
 	login:stop(),
+	IsPassword = communicator:find_password(Username),
+	case IsPassword of
+		undefined ->
+			case Password of
+				undefined ->
+					ok;
+				_ ->
+					gen_statem:call(?MODULE, {login, Username, undefined}),
+					communicator:set_password(Username, Password),
+					gen_statem:call(?MODULE, logout)
+			end;
+		_ ->
+			ok
+	end,	
 	% gen_statem:call(?MODULE, {set_pass, Password}),
 	% Username = read(Prompt),
-	Password = get_pass(Username),
+	% Password = get_pass(Username),
 	Reply = gen_statem:call(?MODULE, {login, Username, Password}),
 	case Reply of
 		max_reached ->
