@@ -316,14 +316,13 @@ handle_cast({send_message_to, all, Time, From, Message, MsgId}, State) ->
     [send_message_to(Name, Time, From, Message, MsgId) || {Name, _Client} <- ListWithoutSender],
     {noreply, State#state{}};
 handle_cast({send_message_to, To, Time, From, Message, MsgId}, State) ->
+    timer:sleep(50),
     {ok, Client} = maps:find(To, State#state.clients),
     case Client#client.address of
         undefined -> % inbox update for registered & logged out
             UpdatedClients = maps:update(To, Client#client{inbox = Client#client.inbox ++ [{Time, From, Message, MsgId}]}, State#state.clients),
             {noreply, State#state{clients = UpdatedClients}};
         _ -> % sending message for logged in users
-            timer:sleep(10), % nie wiem naprawde XDDDDD Ale z tym dziala ((((: 
-                             % inaczej badmatch bo gdzieś dokleja "reply", nie mam siły szukać o co chodzi
             tcp_server:send_to_client(Client#client.address, [Time, From, Message, ref_to_list(MsgId), To]),
             % outbox update
             {ok, TimeRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, {MsgId, To}}),
