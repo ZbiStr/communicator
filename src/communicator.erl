@@ -317,6 +317,7 @@ handle_cast({send_message_to, all, Time, From, Message, MsgId}, State) ->
     [send_message_to(Name, Time, From, Message, MsgId) || {Name, _Client} <- ListWithoutSender],
     {noreply, State#state{}};
 handle_cast({send_message_to, To, Time, From, Message, MsgId}, State) ->
+    timer:sleep(50),
     {ok, Client} = maps:find(To, State#state.clients),
     case Client#client.address of
         undefined -> % inbox update for registered & logged out
