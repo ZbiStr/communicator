@@ -68,6 +68,8 @@ logged_out({call, From}, {login, Username, Password}, Data) ->
 		Reply ->
 			{keep_state_and_data, {reply, From, Reply}}
 	end;
+logged_out(info, i_am_active, _Data) ->
+	keep_state_and_data;
 logged_out({call, From}, _, _Data) ->
 	handle_unknown(From).
 
