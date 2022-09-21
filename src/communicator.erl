@@ -34,8 +34,8 @@
 -define(SERVER, ?MODULE).
 -define(NODE_NAME, erlangTcpServer).
 -define(COOKIE, ciasteczko).
--define(MSG_DELIVERY_TIME, 10000).
--define(AFK_TIME, 120000).
+-define(MSG_DELIVERY_TIME, 3000).
+-define(AFK_TIME, 10000).
 
 -record(state, {
     server_name = undefined,

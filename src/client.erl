@@ -7,8 +7,8 @@
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
 
 %-define(DIVIDER, "~n;~n").
--define(MSG_DELIVERY_TIME, 5000).
--define(ACTIVE_TIME, 10000).
+-define(MSG_DELIVERY_TIME, 3000).
+-define(ACTIVE_TIME, 2000).
 
 -record(data, {
 	username = "" :: string(),
