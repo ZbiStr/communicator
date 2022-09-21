@@ -96,6 +96,7 @@ Klient ->> Serwer: set_password(Name, Password)
 Serwer ->> Klient: ok
 ```
 Klient wywołuje funkcję serwera w postaci set_password(Name, Password). W odpowiedzi serwer wysyła "ok".
+Zostało zastosowane asymetryczne szyfrowanie haseł. Dodatkowo, zamiast pełnych haseł, przechowywane są hashe.
 
 ### history
 
@@ -108,5 +109,3 @@ Serwer ->> Klient: [{Time, From, Message},...]
 end
 ```
 Klient wywołuje funkcję serwera w postaci user_history(Username). W odpowiedzi serwer wysyła listę zapisanych wiadomości w postaci [{Time, From, Message},...].
-
-
