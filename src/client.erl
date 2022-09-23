@@ -1,11 +1,11 @@
 -module(client).
 -behaviour(gen_statem).
 
-%% API
+% API
 -export([start/0, start/1]).
-%% CALLBACKS
+% CALLBACKS
 -export([init/1, callback_mode/0, terminate/3, logged_out/3, logged_in/3]).
-
+% MACROS
 -define(COOKIE, ciasteczko).
 -define(MSG_DELIVERY_TIME, 1000).
 -define(ACTIVE_TIME, 2000).
@@ -63,7 +63,7 @@ callback_mode() ->
 logged_out({call, From}, {login, Username, Password}, Data) ->
 	case communicator:login(Username, {?MODULE, Data#data.address}, Password) of
 		{ok, ServerName} ->
-			{ok, TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
+			{ok, TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active), % Activity confirmation etc explained in communicator.erl
 			{next_state, logged_in, Data#data{username = Username, active_timer_ref = TimerRef}, {reply, From, {ok, ServerName}}};
 		Reply ->
 			{keep_state_and_data, {reply, From, Reply}}
@@ -126,13 +126,13 @@ logged_in({call, From}, history, Data) ->
 logged_in({call, From}, _, _Data) ->
 	handle_unknown(From);
 
-%%confirmation from server that message was received 
+% Confirmation from server that message was received 
 logged_in(cast, {msg_confirm_from_server, MsgId}, Data) ->
 	{MsgSent, NewOutBox} = take_msg_by_ref(MsgId, Data#data.outbox),
 	timer:cancel(MsgSent#msg_sent.timer_ref),
 	{keep_state, Data#data{outbox = NewOutBox}};
 
-%%when server doesn't confirm in the time defined in the macro MSG_DELIVERY_TIMER
+% When server doesn't confirm in the time defined in the macro MSG_DELIVERY_TIMER
 logged_in(info, {msg_retry, MsgRef}, Data) ->
 	{Message, Outbox1} = take_msg_by_ref(MsgRef, Data#data.outbox),
 	{ok, TimerRef} = timer:send_after(?MSG_DELIVERY_TIME, {msg_retry, MsgRef}),
@@ -142,6 +142,7 @@ logged_in(info, {msg_retry, MsgRef}, Data) ->
 	NewData = Data#data{outbox = NewOutbox},
 	communicator:send_message(To, Time, Data#data.username, Message_txt, MsgRef),
 	{keep_state, NewData};
+% Confirm activity when time defined in the macro ACTIVE_TIME is out
 logged_in(info, i_am_active, Data) ->
 	{ok, _TimerRef} = timer:send_after(?ACTIVE_TIME, i_am_active),
 	communicator:confirm_activity(Data#data.username),
@@ -151,7 +152,10 @@ logged_in(cast, {message, CodedTime, CodedFrom, CodedMessage, MsgId}, Data) ->
 	Message = decode_from_7_bits(CodedMessage),
 	Time = decode_from_7_bits(CodedTime),
 	communicator:confirm(MsgId),
-	case Data#data.is_buffered of
+	case Data#data.is_buffered of 
+		% Bufer makes incoming messages not appear while sending the message 
+		% (after typing the command "send"). They only appear after pressing enter.
+		% This prevents the content of the message from being interrupted in the terminal
 		false ->
 			io:format("~s - ~s: ~s~n", [Time, From, Message]),
 			keep_state_and_data;
@@ -195,7 +199,7 @@ terminate(_Reason, _State, Data) ->
 % INTERNAL
 % ================================================================================
 
-
+% Clients loop
 read_commands(Lang, Username) ->
 	PromptReadCommands = "@" ++ Username ++ "> ",
 	PromptMessage = read_prompt(Lang, message),
@@ -295,7 +299,7 @@ get_pass(Lang, Username) ->
 		undefined ->
 			undefined;
 		_ ->
-			PromptIsPass = read_prompt(Lang, is_password),
+			PromptIsPass = read_prompt(Lang, is_password), % Depends on which language was chosen
 			io:format(PromptIsPass),
 			PromptPass = read_prompt(Lang, password_prompt),
 			read(Lang, PromptPass)
@@ -317,7 +321,7 @@ greet(Lang) ->
 	io:format(Prompt).
 
 help(Lang) ->
-	Start = read_prompt(Lang, help),
+	Start = read_prompt(Lang, help), % Depends on which language was chosen
 	Logout = read_prompt(Lang, help_logout),
 	SendAll = read_prompt(Lang, help_send),
 	SendUser = read_prompt(Lang, help_send_username),
@@ -372,10 +376,6 @@ check(Y) ->
 			94
 	end .
 
-%code_to_7_bits(Input) ->
-%	Bit = <<  <<(A-32)>> || A <- Input>>,
-%	<< <<Code>> || <<_A:1,Code:7>> <= Bit>>.
-
 decode_from_7_bits(Input) ->
 	Bit = << <<0:1,Code:7>> || <<Code>> <= Input>>,
 	[(A+32) || <<A:8>> <= Bit].
@@ -384,14 +384,14 @@ take_msg_by_ref(MsgId, Outbox) ->
 	take_msg_by_ref(MsgId, Outbox, []).
 take_msg_by_ref(_MsgId, [], _Acc) ->
 	not_found;
-%%matched
+% Matched
 take_msg_by_ref(MsgId, [SentMsg | Tl], Acc) when SentMsg#msg_sent.msg_ref == MsgId ->
 	{SentMsg, Acc ++ Tl};
-%% no match, test next item
+% No match, test next item
 take_msg_by_ref(MsgId, [H | Tl], Acc) ->
 	take_msg_by_ref(MsgId, Tl, Acc ++ [H]).
 
-get_time() ->
+get_time() -> % Formatting
 	{{Y,M,D},{H,Min,S}} = calendar:local_time(),
 	Year = integer_to_list(Y),
 	TempTime = [ "00" ++ integer_to_list(X) || X <- [M, D, H, Min, S]],
