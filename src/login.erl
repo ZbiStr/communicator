@@ -10,7 +10,7 @@
 -define(EN, 20000).
 -define(PL, 20001).
 -define(PRZYCISK, 20002).
--record(state, {log, pass, win, status, subscribe_click}).
+-record(state, {log, pass, win, subscribe_click, win1}).
 
 start_link() ->
     wx_object:start_link({local, ?SERVER}, ?MODULE, [], []).
@@ -20,7 +20,6 @@ init([]) ->
     Frame = wxFrame:new(Wx, -1, "Erlangpol Communicator", [{size, {310,440}}]),
     Panel = wxPanel:new(Frame, []),
     wxFrame:createStatusBar(Frame,[]),
-    % wxFrame:connect(Frame, close_window),
 
     Image = wxImage:new("C:/Users/ecimkat/sprint2/communicator/erl.png", []),
     Bitmap = wxBitmap:new(wxImage:scale(Image,
@@ -30,15 +29,11 @@ init([]) ->
     StaticBitmap = wxStaticBitmap:new(Panel, 1, Bitmap),
 
     MainSizer = wxBoxSizer:new(?wxVERTICAL),
-    Sizer = wxStaticBoxSizer:new(?wxVERTICAL, Panel, 
-				 [{label, "Login"}]),
-    Sizer2 = wxStaticBoxSizer:new(?wxVERTICAL, Panel, 
-				  [{label, "Password"}]),
+    Sizer = wxStaticBoxSizer:new(?wxVERTICAL, Panel, [{label, "Login"}]),
+    Sizer2 = wxStaticBoxSizer:new(?wxVERTICAL, Panel, [{label, "Password"}]),
 
-    TextCtrl  = wxTextCtrl:new(Panel, 2, [{value, ""}, 
-					 {style, ?wxDEFAULT}]),
-    TextCtrl2 = wxTextCtrl:new(Panel, 3, [{value, ""}, {size, {310, 25}},
-					  {style, ?wxDEFAULT bor ?wxTE_PASSWORD}]),
+    TextCtrl  = wxTextCtrl:new(Panel, 2, [{value, ""}, {style, ?wxDEFAULT}]),
+    TextCtrl2 = wxTextCtrl:new(Panel, 3, [{value, ""}, {size, {310, 25}}, {style, ?wxDEFAULT bor ?wxTE_PASSWORD}]),
     Button = wxButton:new(Panel, ?PRZYCISK, [{label,"Sign up!"}]),
     wxButton:setToolTip(Button, "Click here to sign up!"),
     wxSizer:add(MainSizer, StaticBitmap, []),
@@ -72,12 +67,12 @@ init([]) ->
 
     wxMenuBar:append(MenuBar, FileM, "&Menu"),
     wxMenuBar:append(MenuBar, HelpM, "&Help"),
-    % wxMenuBar:append(MenuBar, LangM, "&Language"),
+    wxMenuBar:append(MenuBar, LangM, "&Language"),
     wxFrame:setMenuBar(Frame, MenuBar),
 
     wxFrame:show(Frame),
     wxFrame:refresh(Frame),
-    {Frame, #state{log = TextCtrl, pass = TextCtrl2, win = Frame}}.
+    {Frame, #state{log = TextCtrl, pass = TextCtrl2, win = Frame, win1 = Panel}}.
 
 get_login() ->
     gen_server:cast(?MODULE, {subscribe_click, self()}),
@@ -87,12 +82,6 @@ get_login() ->
     end.
 
 handle_call(get_login, _, State) ->
-    % case State#state.pass of 
-    %     [] ->
-    %         {reply, {State#state.log, undefined}, State};
-    %     _ ->
-    %         {reply, {State#state.log, State#state.pass}, State}
-    % end;
     Rep = {State#state.log, State#state.pass},
     {reply, Rep, State};
     
@@ -119,12 +108,12 @@ handle_event(#wx{id = Id,
             ?wxID_ABOUT ->
                 dialog(?wxID_ABOUT, State#state.win),
                 {noreply, State};
-            % ?EN ->
-            %     wxFrame:setStatusText(State#state.win, "ELOOOO", []),
-            %     {noreply, State};
-            % ?PL ->
-            %     wxFrame:setStatusText(State#state.win, "SIEMAAA", []),
-            %     {noreply, State};
+            ?EN ->
+                % wxFrame:setStatusText(State#state.win, "ELOOOO", []),
+                {noreply, State};
+            ?PL ->
+                % wxFrame:setStatusText(State#state.win, "SIEMAAA", []),
+                {noreply, State};
             _ -> 
                 io:format("inne"),
                 {noreply, State}
@@ -133,8 +122,6 @@ handle_event(#wx{id = Id,
 handle_event(#wx{id = ?PRZYCISK, event = #wxCommand{type = command_button_clicked}}, State = #state{log = TextCtrl, pass = TextCtrl2, win = Frame, subscribe_click = Pid}) ->
     LabelLogin =  wxTextCtrl:getValue(TextCtrl),
     LabelPassword =  wxTextCtrl:getValue(TextCtrl2),
-    % io:format("Login: ~p~n", [LabelLogin]),
-    % io:format("Password: ~p~n", [LabelPassword]),
     NewState = case LabelLogin of
         [] ->
             Status = "Please enter your login.",
@@ -142,15 +129,10 @@ handle_event(#wx{id = ?PRZYCISK, event = #wxCommand{type = command_button_clicke
         _ ->
             case LabelPassword of
                 [] ->
-                    % Status = "Please enter your password.",
-                    % State;
                     Pid ! button_clicked,
                     Status = "Welcome " ++ LabelLogin ++ "! Connected to server.",
                     State#state{log = LabelLogin, pass = undefined};
                 _ ->
-                    % communicator:login(LabelLogin, address, undefined),
-                    % communicator:set_password(LabelLogin, LabelPassword),
-                    % communicator:logout(LabelLogin),
                     Pid ! button_clicked,
                     Status = "Welcome " ++ LabelLogin ++ "! Connected to server.",
                     State#state{log = LabelLogin, pass = LabelPassword}
